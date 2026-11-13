@@ -1,30 +1,201 @@
 import {
   ArrowRight,
-  ArrowUpRight,
   AudioLines,
   CalendarCheck,
-  Check,
   Mail,
   MessageCircle,
+  MessageSquareText,
   Mic,
   Moon,
   Phone,
-  PhoneForwarded,
+  PhoneIncoming,
+  PhoneOff,
   Plus,
   ShieldCheck,
+  ShoppingBag,
   Sparkles,
   Sun,
   Sunrise,
   Utensils,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import AmaniRobot from "../components/landing/AmaniRobot";
+import BookDemo from "../components/landing/BookDemo";
+import { CountUp, Reveal, useInView } from "../components/landing/motion";
 import { cx } from "../components/ui";
+import VoiceOrb from "../components/VoiceOrb";
 import Waveform from "../components/Waveform";
+import { api, ApiError } from "../lib/api";
 import { useReducedMotion } from "../lib/hooks";
+import { useLiveCall, type CallStatus } from "../lib/useLiveCall";
 
-const SETUP = "/agents/new";
-const SIGN_IN = "/dashboard";
+// The dashboard is closed to the public for now, so every call to action books a demo.
+const BookDemoContext = createContext<() => void>(() => {});
+const useBookDemo = () => useContext(BookDemoContext);
+
+// ---------- the businesses the page is built around ----------
+
+interface Business {
+  key: string;
+  word: string; // finishes the headline: "A calm voice for your …"
+  kind: string;
+  name: string;
+  city: string;
+  hue: number;
+  photo: string; // Unsplash photo id (free to use under the Unsplash licence)
+  alt: string;
+  agent: string;
+  time: string;
+  asked: string;
+  answer: string;
+}
+
+const BUSINESSES: Business[] = [
+  {
+    key: "boutique",
+    word: "boutique",
+    kind: "Clothing boutique",
+    name: "Maison Ivy",
+    city: "London",
+    hue: 330,
+    photo: "1441984904996-e0b6ba687e04",
+    alt: "Clothing boutique with hanging racks",
+    agent: "Harper",
+    time: "8:42pm",
+    asked: "Do you have the linen blazer in a size 12?",
+    answer: "We do, in sand and navy. It's £89, and we're open until 7 tomorrow if you'd like to try it on.",
+  },
+  {
+    key: "optician",
+    word: "opticians",
+    kind: "Opticians",
+    name: "ClearView Opticians",
+    city: "Toronto",
+    hue: 199,
+    photo: "1615468822882-4828d2602857",
+    alt: "Silver-framed glasses resting on glass",
+    agent: "Owen",
+    time: "7:15am",
+    asked: "How long does an eye test take?",
+    answer: "About 30 minutes, and it's free with most vision plans. Shall I take your details so the team can book you in?",
+  },
+  {
+    key: "pharmacy",
+    word: "pharmacy",
+    kind: "Pharmacy",
+    name: "CarePoint Pharmacy",
+    city: "Dubai",
+    hue: 152,
+    photo: "1631549916768-4119b2e5f926",
+    alt: "Medicine tablets on a counter",
+    agent: "Nora",
+    time: "11:05pm",
+    asked: "Is my prescription ready to collect?",
+    answer: "I can't see prescriptions, but I'll pass your name to the pharmacist and they'll call you first thing.",
+  },
+  {
+    key: "dental",
+    word: "clinic",
+    kind: "Dental clinic",
+    name: "Brightside Dental",
+    city: "Sydney",
+    hue: 210,
+    photo: "1629909613654-28e377c37b09",
+    alt: "Modern dental surgery with chair and lamp",
+    agent: "Clara",
+    time: "6:12am",
+    asked: "Are you open this Saturday?",
+    answer: "We are, from 8am to 2pm. A check-up is $120. Can I take your name so the team can book you in?",
+  },
+  {
+    key: "salon",
+    word: "salon",
+    kind: "Hair salon",
+    name: "Studio Lumière",
+    city: "Lyon",
+    hue: 280,
+    photo: "1580618672591-eb180b1a973f",
+    alt: "Stylist blow-drying a client's hair",
+    agent: "Patricia",
+    time: "9:30pm",
+    asked: "How much is a cut and blow-dry?",
+    answer: "It's €55 with a senior stylist and €45 with our junior team. We're open late on Thursdays.",
+  },
+  {
+    key: "bakery",
+    word: "bakery",
+    kind: "Bakery",
+    name: "Golden Crust",
+    city: "Austin",
+    hue: 32,
+    photo: "1568254183919-78a4f43a2877",
+    alt: "Fresh bread on bakery shelves",
+    agent: "Milo",
+    time: "5:50am",
+    asked: "Can I order a birthday cake for Friday?",
+    answer: "Yes, we need two days' notice, so Friday works. I'll take your details and the baker will call to confirm.",
+  },
+  {
+    key: "garage",
+    word: "garage",
+    kind: "Auto repair",
+    name: "Torque & Co.",
+    city: "Lagos",
+    hue: 18,
+    photo: "1775590766345-c117265f0c1b",
+    alt: "Mechanic working on a car engine",
+    agent: "Marco",
+    time: "7:40pm",
+    asked: "My brakes are grinding. Can you look at it?",
+    answer: "That's often worn pads. A brake check is ₦25,000. We open at 7:30, so shall a mechanic call you first thing?",
+  },
+  {
+    key: "florist",
+    word: "florist",
+    kind: "Florist",
+    name: "Wild Fern",
+    city: "Cape Town",
+    hue: 140,
+    photo: "1639696194673-67b86204b885",
+    alt: "Flower shop full of fresh bouquets",
+    agent: "Clara",
+    time: "10:20pm",
+    asked: "Do you deliver on Sundays?",
+    answer: "We do, between 9 and 1. Same-day delivery is R150 if you order before 10am.",
+  },
+  {
+    key: "gym",
+    word: "gym",
+    kind: "Fitness studio",
+    name: "Pulse Fitness",
+    city: "Berlin",
+    hue: 4,
+    photo: "1534438327276-14e5300c3a48",
+    alt: "Woman training in a gym",
+    agent: "Jonah",
+    time: "6:05am",
+    asked: "Is there a free trial class?",
+    answer: "Your first class is free. Spin starts at 7 and yoga at 8. Want me to take your name for tomorrow?",
+  },
+  {
+    key: "vet",
+    word: "vet",
+    kind: "Veterinary clinic",
+    name: "Paws & Whiskers",
+    city: "Nairobi",
+    hue: 262,
+    photo: "1770836037793-95bdbf190f71",
+    alt: "Vet examining a dachshund",
+    agent: "Nora",
+    time: "9:10pm",
+    asked: "My dog hasn't eaten all day. What should I do?",
+    answer: "I'm sorry to hear that. I'll alert the on-call vet right now so they can call you back.",
+  },
+];
+
+const photoUrl = (id: string, width: number) =>
+  `https://images.unsplash.com/photo-${id}?w=${width}&q=70&auto=format&fit=crop`;
 
 // ---------- shared bits ----------
 
@@ -44,28 +215,61 @@ function Logo({ dark }: { dark?: boolean }) {
   );
 }
 
-function PrimaryCta({ children, className }: { children: ReactNode; className?: string }) {
+function PrimaryCta({ children, className, light }: { children: ReactNode; className?: string; light?: boolean }) {
+  const book = useBookDemo();
   return (
-    <Link
-      to={SETUP}
+    <button
+      type="button"
+      onClick={book}
       className={cx(
-        "group inline-flex h-12 items-center gap-2 rounded-full bg-slate-950 pl-6 pr-2 text-[0.9375rem] font-medium text-white shadow-lg shadow-slate-900/10 transition hover:bg-slate-800",
+        "group relative inline-flex h-12 items-center gap-2 overflow-hidden rounded-full pl-6 pr-2 text-[0.9375rem] font-medium shadow-lg transition active:scale-[0.98]",
+        light ? "bg-white text-slate-950 shadow-black/20" : "bg-slate-950 text-white shadow-slate-900/15",
         className,
       )}
     >
+      {/* a sheen that sweeps across on hover */}
+      <span className="pointer-events-none absolute inset-y-0 -left-1/2 w-1/3 -skew-x-12 bg-white/25 opacity-0 transition-all duration-700 group-hover:left-[120%] group-hover:opacity-100" />
       {children}
-      <span className="flex size-8 items-center justify-center rounded-full bg-brand-500 transition group-hover:translate-x-0.5">
+      <span
+        className="flex size-8 items-center justify-center rounded-full text-white transition group-hover:translate-x-0.5"
+        style={{ background: "hsl(var(--hue) 85% 55%)" }}
+      >
         <ArrowRight className="size-4" />
       </span>
-    </Link>
+    </button>
   );
 }
 
-function Eyebrow({ children }: { children: ReactNode }) {
+function Eyebrow({ children, dark }: { children: ReactNode; dark?: boolean }) {
   return (
-    <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-      <span className="h-px w-6 bg-slate-300" />
+    <div
+      className={cx(
+        "inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em]",
+        dark ? "text-slate-400" : "text-slate-500",
+      )}
+    >
+      <span className={cx("h-px w-6", dark ? "bg-slate-600" : "bg-slate-300")} />
       {children}
+    </div>
+  );
+}
+
+function SectionTitle({ eyebrow, children, aside, dark }: { eyebrow: string; children: ReactNode; aside?: ReactNode; dark?: boolean }) {
+  return (
+    <div className="grid gap-6 lg:grid-cols-2 lg:items-end">
+      <div>
+        <Reveal>
+          <Eyebrow dark={dark}>{eyebrow}</Eyebrow>
+        </Reveal>
+        <Reveal as="h2" variant="blur" index={1} className="mt-4 font-display text-5xl leading-[1.02] tracking-tight sm:text-6xl">
+          {children}
+        </Reveal>
+      </div>
+      {aside && (
+        <Reveal index={2} className={cx("max-w-md text-lg lg:justify-self-end", dark ? "text-slate-400" : "text-slate-600")}>
+          {aside}
+        </Reveal>
+      )}
     </div>
   );
 }
@@ -73,253 +277,430 @@ function Eyebrow({ children }: { children: ReactNode }) {
 // ---------- nav ----------
 
 function Nav() {
+  const book = useBookDemo();
   const [scrolled, setScrolled] = useState(false);
+  const [progress, setProgress] = useState(0);
   useEffect(() => {
     const root = document.getElementById("landing-scroll");
-    const on = () => setScrolled((root?.scrollTop ?? 0) > 8);
-    root?.addEventListener("scroll", on);
-    return () => root?.removeEventListener("scroll", on);
+    if (!root) return;
+    const on = () => {
+      setScrolled(root.scrollTop > 8);
+      const max = root.scrollHeight - root.clientHeight;
+      setProgress(max > 0 ? root.scrollTop / max : 0);
+    };
+    root.addEventListener("scroll", on, { passive: true });
+    return () => root.removeEventListener("scroll", on);
   }, []);
   return (
     <header
       className={cx(
-        "sticky top-0 z-40 transition-colors",
-        scrolled ? "border-b border-slate-200/70 bg-white/80 backdrop-blur-md" : "border-b border-transparent",
+        "sticky top-0 z-40 transition-colors duration-300",
+        scrolled ? "border-b border-slate-200/70 bg-white/75 backdrop-blur-md" : "border-b border-transparent",
       )}
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-10 px-5 sm:px-8">
         <Logo />
         <nav className="hidden items-center gap-7 text-sm text-slate-600 lg:flex">
-          <a href="#day" className="hover:text-slate-950">A day with CalMe</a>
-          <a href="#cost" className="hover:text-slate-950">Missed calls</a>
-          <a href="#features" className="hover:text-slate-950">Features</a>
-          <a href="#faq" className="hover:text-slate-950">Questions</a>
+          {[
+            ["#try", "Talk to Amani"],
+            ["#street", "Every business"],
+            ["#live3", "How it talks"],
+            ["#day", "A day of calls"],
+            ["#faq", "Questions"],
+          ].map(([href, label]) => (
+            <a key={href} href={href} className="relative py-1 hover:text-slate-950 after:absolute after:inset-x-0 after:-bottom-0.5 after:h-px after:origin-left after:scale-x-0 after:bg-slate-950 after:transition-transform hover:after:scale-x-100">
+              {label}
+            </a>
+          ))}
         </nav>
         <div className="ml-auto flex items-center gap-3">
-          <Link to={SIGN_IN} className="hidden text-sm font-medium text-slate-600 hover:text-slate-950 sm:block">
-            Sign in
-          </Link>
-          <Link
-            to={SETUP}
-            className="inline-flex h-9 items-center rounded-full bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800"
+          <button
+            type="button"
+            onClick={book}
+            className="inline-flex h-9 items-center rounded-full bg-slate-950 px-4 text-sm font-medium text-white transition hover:bg-slate-800 active:scale-[0.97]"
           >
-            Get started
-          </Link>
+            Book a demo
+          </button>
         </div>
       </div>
+      <div
+        className="absolute bottom-0 left-0 h-[2px] origin-left"
+        style={{ width: "100%", transform: `scaleX(${progress})`, background: "hsl(var(--hue) 85% 55%)" }}
+      />
     </header>
   );
 }
 
-// ---------- hero: a call that plays itself ----------
+// ---------- hero: meet Amani ----------
 
-const CALL: { who: "ai" | "caller"; text: string }[] = [
-  { who: "ai", text: "Good evening, Sunrise Dental. This is Sam, how can I help?" },
-  { who: "caller", text: "Hi! Are you open this Saturday?" },
-  { who: "ai", text: "We are, from 8am to 6pm. Is this for a check-up?" },
-  { who: "caller", text: "Yes. How much is that?" },
-  { who: "ai", text: "A check-up is 2,000 shillings. Shall I take your name and number so the team can book you in?" },
-  { who: "caller", text: "Please. It's Grace, 0712 345 678." },
-  { who: "ai", text: "Thanks, Grace. The team will call you first thing tomorrow." },
-];
+const STATUS_TEXT: Record<CallStatus, string> = {
+  idle: "Tap below and say hello",
+  connecting: "Waking up…",
+  listening: "Listening…",
+  thinking: "Thinking…",
+  speaking: "Amani is speaking",
+};
 
-function LiveCall() {
-  const reduced = useReducedMotion();
-  const [pos, setPos] = useState({ line: 0, chars: 0 });
-  const [seconds, setSeconds] = useState(0);
-
-  useEffect(() => {
-    if (reduced) {
-      setPos({ line: CALL.length - 1, chars: Infinity });
-      return;
+/** The landing page's live demo: a real conversation with the Amani agent. */
+function TryAmani() {
+  const book = useBookDemo();
+  const startDemo = useCallback(async () => {
+    try {
+      return await api.demoSession();
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "rate_limited") throw new Error(err.message);
+      throw new Error("Amani is taking a short break. Book a demo and we'll introduce you properly.");
     }
-    const cur = CALL[pos.line];
-    const t =
-      pos.chars < cur.text.length
-        ? window.setTimeout(() => setPos({ line: pos.line, chars: pos.chars + 2 }), 32)
-        : pos.line < CALL.length - 1
-          ? window.setTimeout(() => setPos({ line: pos.line + 1, chars: 0 }), 750)
-          : window.setTimeout(() => {
-              setPos({ line: 0, chars: 0 });
-              setSeconds(0);
-            }, 4500);
-    return () => window.clearTimeout(t);
-  }, [pos, reduced]);
-
-  useEffect(() => {
-    if (reduced) return;
-    const id = window.setInterval(() => setSeconds((s) => s + 1), 1000);
-    return () => window.clearInterval(id);
-  }, [reduced]);
-
-  const speaking = pos.chars < CALL[pos.line].text.length;
-  const who = CALL[pos.line].who;
-  const visible = CALL.slice(0, pos.line + 1);
-  const time = reduced ? "01:12" : `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+  }, []);
+  const call = useLiveCall(startDemo);
+  const shown = call.lines.filter((l) => l.kind === "you" || l.kind === "agent").slice(-3);
+  const problem = [...call.lines].reverse().find((l) => l.kind === "error");
 
   return (
-    <div className="relative mx-auto max-w-5xl">
-      {/* floating context chips */}
-      <div className="motion-safe-only absolute -top-5 left-1/2 z-10 hidden -translate-x-1/2 animate-float items-center gap-2 rounded-full border border-slate-200/80 bg-white px-3.5 py-2 text-xs font-medium shadow-lg shadow-slate-900/5 lg:flex">
-        <Moon className="size-3.5 text-violet-500" />
-        9:42pm · after closing
-      </div>
-      <div
-        className="motion-safe-only absolute -bottom-5 right-12 z-10 hidden animate-float items-center gap-2 rounded-full border border-slate-200/80 bg-white px-3.5 py-2 text-xs font-medium shadow-lg shadow-slate-900/5 lg:flex"
-        style={{ animationDelay: "-3s" }}
-      >
-        <Check className="size-3.5 text-emerald-500" />
-        Message saved for the team
-      </div>
+    <div id="try" className="relative scroll-mt-24">
+      <div className="relative overflow-hidden rounded-[2rem] border border-white/80 bg-white/60 p-6 pt-8 shadow-2xl shadow-slate-900/10 backdrop-blur-xl sm:p-8">
+        <AmaniRobot status={call.status} level={call.level} />
 
-      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white shadow-2xl shadow-slate-900/10">
-        <div className="grid md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-          {/* caller side */}
-          <div className="relative flex flex-col justify-between gap-8 border-b border-slate-100 bg-slate-50/70 p-6 md:border-b-0 md:border-r sm:p-8">
-            <div className="flex items-center justify-between">
-              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-600/15">
-                <span className="relative flex size-2">
-                  <span className="motion-safe-only absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-70" />
-                  <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
-                </span>
-                Live call
-              </span>
-              <span className="tabular font-mono text-sm text-slate-500">{time}</span>
-            </div>
-            <div>
-              <div className="text-xs font-medium uppercase tracking-wider text-slate-400">Answering for</div>
-              <div className="mt-1 font-display text-3xl leading-tight text-slate-950">Sunrise Dental</div>
-              <div className="mt-1 text-sm text-slate-500">Sam · AI receptionist · English</div>
-            </div>
-            <div>
-              <Waveform active={speaking} tone={who === "ai" ? "brand" : "slate"} />
-              <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
-                <span className="flex items-center gap-1.5">
-                  <span className={cx("size-1.5 rounded-full", who === "ai" ? "bg-brand-500" : "bg-slate-400")} />
-                  {speaking ? (who === "ai" ? "Sam is speaking" : "Caller is speaking") : "Listening…"}
-                </span>
-                <span>Example call</span>
-              </div>
-            </div>
+        <div className="mt-2 text-center">
+          <div className="font-display text-3xl">Amani</div>
+          <div className="text-sm text-slate-500">CalMe's demo call agent</div>
+          <div key={call.status} className="swap-in mt-3 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+            <span className={cx("size-1.5 rounded-full", call.active ? "bg-emerald-500" : "bg-slate-300")} />
+            {STATUS_TEXT[call.status]}
           </div>
+        </div>
 
-          {/* transcript */}
-          <div className="flex h-[22rem] flex-col justify-end gap-2.5 overflow-hidden p-6 sm:h-[26rem] sm:p-8">
-            {visible.map((l, i) => {
-              const last = i === pos.line;
-              const text = last ? l.text.slice(0, pos.chars) : l.text;
-              return (
-                <div key={i} className={cx("flex", l.who === "caller" && "justify-end")}>
-                  <div
-                    className={cx(
-                      "max-w-[85%] rounded-2xl px-4 py-2.5 text-[0.9375rem] leading-snug",
-                      l.who === "caller"
-                        ? "rounded-br-md bg-slate-950 text-white"
-                        : "rounded-bl-md bg-brand-50 text-slate-800 ring-1 ring-brand-100",
-                    )}
-                  >
-                    {text}
-                    {last && speaking && <span className="ml-0.5 inline-block h-4 w-0.5 translate-y-0.5 animate-pulse bg-current" />}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+        {/* the conversation so far */}
+        <div className="mt-5 flex min-h-[6.5rem] flex-col justify-end gap-2">
+          {shown.length === 0 && !problem && (
+            <p className="text-center text-sm text-slate-500">
+              Ask Amani anything a customer might: opening hours, prices, or to take a message.
+            </p>
+          )}
+          {shown.map((l, i) => (
+            <div key={`${call.lines.length}-${i}`} className={cx("bubble-in flex", l.kind === "you" && "justify-end")}>
+              <p
+                className={cx(
+                  "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm",
+                  l.kind === "you" ? "rounded-br-md bg-slate-950 text-white" : "rounded-bl-md bg-sky-50 text-slate-800 ring-1 ring-sky-100",
+                )}
+              >
+                {l.text}
+              </p>
+            </div>
+          ))}
+          {problem && !call.active && (
+            <div className="swap-in rounded-2xl bg-amber-50 px-4 py-3 text-center text-sm text-amber-800 ring-1 ring-amber-200">
+              {problem.text}{" "}
+              <button onClick={book} className="font-medium underline underline-offset-2">
+                Book a demo
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5 flex flex-col items-center gap-2">
+          {call.active ? (
+            <button
+              onClick={call.hangUp}
+              className="inline-flex h-12 items-center gap-2 rounded-full bg-red-600 px-6 text-[0.9375rem] font-medium text-white shadow-lg shadow-red-600/20 transition hover:bg-red-700 active:scale-[0.98]"
+            >
+              <PhoneOff className="size-4" />
+              End conversation
+            </button>
+          ) : (
+            <button
+              onClick={call.start}
+              className="group inline-flex h-12 items-center gap-2 rounded-full bg-slate-950 px-6 text-[0.9375rem] font-medium text-white shadow-lg shadow-slate-900/15 transition hover:bg-slate-800 active:scale-[0.98]"
+            >
+              <Mic className="size-4 transition group-hover:scale-110" />
+              Talk to Amani
+            </button>
+          )}
+          <p className="text-xs text-slate-400">Uses your microphone · Headphones help · Short demo calls</p>
         </div>
       </div>
     </div>
   );
 }
 
-function Hero() {
+function Hero({ index }: { index: number }) {
+  const biz = BUSINESSES[index];
   return (
-    <section className="relative overflow-hidden">
-      {/* soft grid + glow */}
+    <section className="relative isolate overflow-hidden">
+      {/* the hero takes on the colour of the business named in the headline */}
       <div
-        className="absolute inset-0 -z-10 opacity-[0.5]"
+        className="absolute inset-0 -z-10"
         style={{
-          backgroundImage:
-            "linear-gradient(to right, rgb(226 232 240 / 0.7) 1px, transparent 1px), linear-gradient(to bottom, rgb(226 232 240 / 0.7) 1px, transparent 1px)",
-          backgroundSize: "64px 64px",
-          maskImage: "radial-gradient(ellipse 70% 55% at 50% 30%, black, transparent)",
-          WebkitMaskImage: "radial-gradient(ellipse 70% 55% at 50% 30%, black, transparent)",
+          background:
+            "radial-gradient(60% 55% at 78% 35%, hsl(var(--hue) 95% 86% / 0.75), transparent 70%), radial-gradient(45% 40% at 10% 90%, hsl(calc(var(--hue) + 40) 90% 90% / 0.6), transparent 70%)",
         }}
       />
-      <div className="absolute left-1/2 top-24 -z-10 h-80 w-[44rem] -translate-x-1/2 rounded-full bg-brand-200/40 blur-3xl" />
+      <div
+        className="absolute inset-0 -z-10 opacity-40"
+        style={{
+          backgroundImage:
+            "linear-gradient(to right, rgb(226 232 240 / 0.8) 1px, transparent 1px), linear-gradient(to bottom, rgb(226 232 240 / 0.8) 1px, transparent 1px)",
+          backgroundSize: "64px 64px",
+          maskImage: "radial-gradient(ellipse 70% 60% at 50% 30%, black, transparent)",
+          WebkitMaskImage: "radial-gradient(ellipse 70% 60% at 50% 30%, black, transparent)",
+        }}
+      />
 
-      <div className="mx-auto max-w-7xl px-5 pb-24 pt-14 sm:px-8 sm:pt-20">
-        <div className="mx-auto max-w-4xl text-center">
-          <Link
-            to={SETUP}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 py-1 pl-1 pr-3 text-xs font-medium text-slate-600 shadow-xs backdrop-blur hover:border-slate-300"
-          >
-            <span className="rounded-full bg-slate-950 px-2 py-0.5 text-white">New</span>
-            An AI receptionist for local businesses
-            <ArrowUpRight className="size-3.5" />
-          </Link>
-          <h1 className="mt-7 font-display text-[3.25rem] leading-[0.95] tracking-tight text-slate-950 sm:text-7xl lg:text-[6.5rem]">
-            The phone rings.
-            <br />
-            <em className="bg-gradient-to-r from-brand-600 via-violet-500 to-brand-500 bg-clip-text text-transparent">
-              You stay calm.
-            </em>
+      <div className="mx-auto grid max-w-7xl items-center gap-14 px-5 pb-24 pt-12 sm:px-8 sm:pt-16 lg:grid-cols-[1.15fr_1fr]">
+        <div>
+          <Reveal>
+            <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 py-1 pl-1 pr-3 text-xs font-medium text-slate-600 shadow-xs backdrop-blur">
+              <span className="rounded-full bg-slate-950 px-2 py-0.5 text-white">New</span>
+              AI call agents for local businesses
+            </span>
+          </Reveal>
+          <h1 className="mt-7 font-display text-[3.4rem] leading-[0.95] tracking-tight text-slate-950 sm:text-7xl lg:text-[5.75rem]">
+            <Reveal as="span" variant="blur" className="block">
+              A calm voice
+            </Reveal>
+            <Reveal as="span" variant="blur" index={1} className="block [perspective:600px]">
+              for your{" "}
+              <em key={biz.key} className="word-in not-italic" style={{ color: "hsl(var(--hue) 75% 45%)" }}>
+                <span className="italic">{biz.word}.</span>
+              </em>
+            </Reveal>
           </h1>
-          <p className="mx-auto mt-7 max-w-xl text-lg leading-relaxed text-slate-600">
-            CalMe answers your business phone in a warm, natural voice. It answers your customers'
-            questions and takes their messages, day or night, while you get on with your work.
-          </p>
-          <div className="mt-9 flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <PrimaryCta>Set up your assistant</PrimaryCta>
-            <a href="#day" className="inline-flex h-12 items-center gap-2 px-4 text-[0.9375rem] font-medium text-slate-700 hover:text-slate-950">
-              <span className="flex size-8 items-center justify-center rounded-full border border-slate-200 bg-white">
-                <Phone className="size-3.5" />
-              </span>
-              See a day of calls
+          <Reveal index={2} as="p" className="mt-7 max-w-lg text-lg leading-relaxed text-slate-600">
+            CalMe gives every business its own AI call agent. It knows your hours and prices,
+            answers in a warm, natural voice, and takes a message when it can't help, day or night.
+          </Reveal>
+          <Reveal index={3} className="mt-9 flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+            <PrimaryCta>Book a demo</PrimaryCta>
+            <a href="#try" className="inline-flex h-12 items-center gap-2 px-2 text-[0.9375rem] font-medium text-slate-700 hover:text-slate-950 lg:hidden">
+              <Mic className="size-4" />
+              Talk to Amani
             </a>
-          </div>
-          <p className="mt-5 text-sm text-slate-500">Ready in about 3 minutes · No technical skills · Try it yourself before going live</p>
+          </Reveal>
+          <Reveal index={4} as="p" className="mt-5 text-sm text-slate-500">
+            Want to hear it first? Amani is a real call agent. Say hello →
+          </Reveal>
         </div>
 
-        <div className="mt-16 sm:mt-20">
-          <LiveCall />
+        <Reveal variant="scale" index={2}>
+          <TryAmani />
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+// ---------- every kind of business: a rotating showcase ----------
+
+const SHOWCASE_MS = 6500;
+
+function Showcase() {
+  const reduced = useReducedMotion();
+  const [ref, inView] = useInView<HTMLDivElement>(0.3);
+  const [active, setActive] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const biz = BUSINESSES[active];
+
+  useEffect(() => {
+    if (!inView || paused || reduced) return;
+    const id = window.setTimeout(() => setActive((i) => (i + 1) % BUSINESSES.length), SHOWCASE_MS);
+    return () => window.clearTimeout(id);
+  }, [active, inView, paused, reduced]);
+
+  return (
+    <section id="street" className="scroll-mt-16 border-t border-slate-100 py-28">
+      <div className="mx-auto max-w-7xl px-5 sm:px-8">
+        <SectionTitle
+          eyebrow="Built for every business"
+          aside="Boutiques, opticians, pharmacies, clinics, salons and more. Each gets its own call agent, with its own name, voice and greeting, and knows its hours, prices and services."
+        >
+          Every kind of business. <em className="text-slate-400">One calm voice.</em>
+        </SectionTitle>
+
+        <Reveal variant="scale">
+          <div
+            ref={ref}
+            className="mt-14 overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-xl shadow-slate-900/5"
+            onMouseEnter={() => setPaused(true)}
+            onMouseLeave={() => setPaused(false)}
+            style={{ "--biz": biz.hue } as CSSProperties}
+          >
+            <div className="grid lg:grid-cols-[1.45fr_1fr]">
+              {/* photos cross-fade, each slowly zooming while it's on stage */}
+              <div className="relative h-72 overflow-hidden bg-slate-900 sm:h-96 lg:h-[30rem]">
+                {BUSINESSES.map((b, i) => (
+                  <img
+                    key={b.key}
+                    src={photoUrl(b.photo, 1200)}
+                    alt={i === active ? b.alt : ""}
+                    loading={i < 2 ? "eager" : "lazy"}
+                    className={cx(
+                      "absolute inset-0 size-full object-cover transition-[opacity,transform] ease-out",
+                      i === active ? "scale-100 opacity-100 duration-[1200ms,7000ms]" : "scale-110 opacity-0 duration-[900ms,900ms]",
+                    )}
+                  />
+                ))}
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/10 to-transparent" />
+                <div key={biz.key} className="absolute inset-x-0 bottom-0 p-6 text-white sm:p-8">
+                  <span
+                    className="swap-in inline-flex items-center rounded-full px-3 py-1 text-xs font-medium"
+                    style={{ background: `hsl(${biz.hue} 80% 55% / 0.9)` }}
+                  >
+                    {biz.kind}
+                  </span>
+                  <div className="swap-in mt-3 font-display text-5xl leading-none sm:text-6xl" style={{ animationDelay: "80ms" }}>
+                    {biz.name}
+                  </div>
+                  <div className="swap-in mt-2 text-sm text-white/70" style={{ animationDelay: "160ms" }}>
+                    {biz.city} · answered by {biz.agent}
+                  </div>
+                </div>
+              </div>
+
+              {/* the call that came in */}
+              <div className="flex flex-col justify-between gap-8 p-6 sm:p-8">
+                <div key={biz.key} className="space-y-4">
+                  <div className="swap-in flex items-center justify-between text-sm">
+                    <span className="inline-flex items-center gap-2 font-medium text-slate-700">
+                      <span className="relative flex size-8 items-center justify-center rounded-full text-white" style={{ background: `hsl(${biz.hue} 75% 50%)` }}>
+                        <PhoneIncoming className="size-4" />
+                      </span>
+                      Incoming call
+                    </span>
+                    <span className="tabular text-slate-400">{biz.time}</span>
+                  </div>
+                  <div className="bubble-in flex justify-end" style={{ animationDelay: "200ms" }}>
+                    <p className="max-w-[90%] rounded-2xl rounded-br-md bg-slate-950 px-4 py-3 text-[0.9375rem] text-white">{biz.asked}</p>
+                  </div>
+                  <div className="bubble-in flex" style={{ animationDelay: "700ms" }}>
+                    <p
+                      className="max-w-[90%] rounded-2xl rounded-bl-md px-4 py-3 text-[0.9375rem] text-slate-800"
+                      style={{ background: `hsl(${biz.hue} 90% 96%)`, boxShadow: `inset 0 0 0 1px hsl(${biz.hue} 70% 88%)` }}
+                    >
+                      {biz.answer}
+                    </p>
+                  </div>
+                  <div className="swap-in flex items-center gap-2 text-xs text-slate-500" style={{ animationDelay: "1100ms" }}>
+                    <span className="size-1.5 rounded-full" style={{ background: `hsl(${biz.hue} 75% 50%)` }} />
+                    {biz.agent} · {biz.name}'s call agent
+                  </div>
+                </div>
+
+                {/* progress through the businesses */}
+                <div className="flex gap-1.5">
+                  {BUSINESSES.map((b, i) => (
+                    <span key={b.key} className="h-1 flex-1 overflow-hidden rounded-full bg-slate-100">
+                      <span
+                        key={i === active ? `${active}-${paused}` : "idle"}
+                        className="block h-full origin-left rounded-full"
+                        style={{
+                          background: `hsl(${biz.hue} 75% 50%)`,
+                          transform: i < active ? "scaleX(1)" : "scaleX(0)",
+                          animation: i === active && inView && !paused && !reduced ? `fill-bar ${SHOWCASE_MS}ms linear forwards` : undefined,
+                        }}
+                      />
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </Reveal>
+
+        {/* jump straight to a business */}
+        <div className="-mx-5 mt-5 flex gap-2 overflow-x-auto px-5 pb-2 sm:mx-0 sm:flex-wrap sm:justify-center sm:px-0">
+          {BUSINESSES.map((b, i) => (
+            <button
+              key={b.key}
+              onClick={() => setActive(i)}
+              aria-pressed={i === active}
+              className={cx(
+                "flex shrink-0 items-center gap-2 rounded-full py-1 pl-1 pr-3.5 text-sm transition-all duration-300 active:scale-95",
+                i === active ? "bg-slate-950 text-white shadow-lg" : "bg-white text-slate-600 ring-1 ring-inset ring-slate-200 hover:text-slate-950",
+              )}
+            >
+              <img src={photoUrl(b.photo, 80)} alt="" loading="lazy" className="size-7 rounded-full object-cover" />
+              {b.kind}
+            </button>
+          ))}
+        </div>
+        <p className="mt-4 text-center text-xs text-slate-400">Example businesses and calls. Photos from Unsplash.</p>
+      </div>
+    </section>
+  );
+}
+
+// ---------- Live 3: it listens while it talks ----------
+
+const BARGE: { agent: boolean; caller: boolean; caption: string; agentText?: string; callerText?: string }[] = [
+  { agent: true, caller: false, caption: "Clara is answering", agentText: "We have openings on Thursday at 10, Friday at 2, or—" },
+  { agent: false, caller: true, caption: "The caller cuts in, and Clara stops straight away", callerText: "Actually, is Saturday possible?" },
+  { agent: true, caller: false, caption: "Then answers what was actually asked", agentText: "Saturday works. We're open 8 to 6." },
+];
+
+function Live3() {
+  const reduced = useReducedMotion();
+  const [ref, inView] = useInView<HTMLDivElement>(0.4);
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    if (!inView || reduced) return;
+    const id = window.setInterval(() => setStep((s) => (s + 1) % BARGE.length), 2600);
+    return () => window.clearInterval(id);
+  }, [inView, reduced]);
+  const s = BARGE[step];
+
+  return (
+    <section id="live3" className="scroll-mt-16 px-3 pt-28 sm:px-5" style={{ "--hue": 217 } as CSSProperties}>
+      <div className="relative mx-auto max-w-[90rem] overflow-hidden rounded-[2rem] bg-slate-950 px-5 py-24 text-white sm:px-8">
+        <div className="absolute -right-32 -top-40 size-[30rem] rounded-full bg-brand-600/25 blur-3xl" />
+        <div className="absolute -bottom-40 -left-32 size-[26rem] rounded-full bg-violet-600/20 blur-3xl" />
+        <div className="relative mx-auto max-w-6xl">
+          <SectionTitle
+            dark
+            eyebrow="Powered by Live 3"
+            aside="Most phone bots wait for you to finish, then talk over you. CalMe listens while it speaks, so it stops when a caller cuts in and answers what they actually asked."
+          >
+            It listens <em className="text-brand-300">while it talks.</em>
+          </SectionTitle>
+
+          <div ref={ref} className="mt-14 grid gap-4 rounded-3xl border border-white/10 bg-white/[0.04] p-6 backdrop-blur sm:p-8">
+            {[
+              { who: "Clara · your agent", on: s.agent, text: s.agentText, color: "text-brand-300" },
+              { who: "Caller", on: s.caller, text: s.callerText, color: "text-amber-300" },
+            ].map((lane) => (
+              <div key={lane.who} className="grid min-w-0 items-center gap-4 sm:grid-cols-[10rem_1fr]">
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <span className={cx("size-2 rounded-full transition", lane.on ? "bg-current" : "bg-slate-600", lane.color)} />
+                  {lane.who}
+                </div>
+                <div className={cx("relative min-w-0 transition-opacity duration-300", lane.on ? "opacity-100" : "opacity-30", lane.color)}>
+                  <Waveform active={lane.on} tone="current" bars={36} className="h-12" />
+                  {lane.on && lane.text && (
+                    <p key={`${step}-${lane.who}`} className="swap-in mt-2 text-[0.9375rem] text-white">
+                      “{lane.text}”
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+            <div className="mt-2 flex items-center justify-between gap-4 border-t border-white/10 pt-5 text-sm">
+              <span key={step} className="swap-in text-slate-300">
+                {s.caption}
+              </span>
+              <span className="flex gap-1.5">
+                {BARGE.map((_, i) => (
+                  <span key={i} className={cx("h-1.5 rounded-full transition-all duration-500", i === step ? "w-6 bg-white" : "w-1.5 bg-white/30")} />
+                ))}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     </section>
   );
 }
 
-function Marquee() {
-  const reduced = useReducedMotion();
-  const items = [
-    "Dental clinics", "Hair salons", "Restaurants", "Auto repair", "Bakeries", "Plumbers",
-    "Vet clinics", "Gyms", "Florists", "Spas", "Pharmacies", "Cafés", "Barbers", "Driving schools",
-  ];
-  const row = (
-    <div className="flex shrink-0 items-center gap-10 pr-10">
-      {items.map((t) => (
-        <span key={t} className="flex items-center gap-10 whitespace-nowrap font-display text-2xl text-slate-400">
-          {t}
-          <span className="size-1.5 rounded-full bg-slate-300" />
-        </span>
-      ))}
-    </div>
-  );
-  return (
-    <div className="border-y border-slate-100 py-6">
-      <div className="mb-4 text-center text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-        Made for the businesses on your street
-      </div>
-      <div className="flex overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_12%,black_88%,transparent)]">
-        <div className={cx("flex", !reduced && "motion-safe-only animate-marquee")}>
-          {row}
-          {row}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------- a day with CalMe ----------
+// ---------- a day of calls ----------
 
 const DAY: { hour: number; time: string; tag: string; icon: typeof Sun; caller: string; reply: string }[] = [
   {
@@ -369,34 +750,28 @@ function DayTimeline() {
   const e = DAY[sel];
   const pct = (h: number) => `${(h / 24) * 100}%`;
   return (
-    <section id="day" className="scroll-mt-16 py-28">
+    <section id="day" className="scroll-mt-16 py-28" style={{ "--hue": 199 } as CSSProperties}>
       <div className="mx-auto max-w-7xl px-5 sm:px-8">
-        <div className="grid gap-6 lg:grid-cols-2 lg:items-end">
-          <div>
-            <Eyebrow>A day with CalMe</Eyebrow>
-            <h2 className="mt-4 font-display text-5xl leading-[1.02] tracking-tight sm:text-6xl">
-              Twenty-four hours.
-              <br />
-              <em className="text-slate-400">Not one missed call.</em>
-            </h2>
-          </div>
-          <p className="max-w-md text-lg text-slate-600 lg:justify-self-end">
-            Early mornings, the lunch rush and long after you've locked up, your assistant answers
-            every call the same calm way. Tap a call to see how it went.
-          </p>
-        </div>
+        <SectionTitle
+          eyebrow="A day of calls"
+          aside="Early mornings, the lunch rush and long after you've locked up, your agent answers every call the same calm way. Tap a call to hear how it went."
+        >
+          Twenty-four hours.
+          <br />
+          <em className="text-slate-400">Not one missed call.</em>
+        </SectionTitle>
 
-        <div className="mt-14 rounded-[1.75rem] border border-slate-200/80 bg-white p-6 shadow-xs sm:p-10">
-          {/* the 24h ribbon */}
+        <Reveal variant="scale" className="mt-14 rounded-[1.75rem] border border-slate-200/80 bg-white p-6 shadow-xs sm:p-10">
           <div className="relative pb-10 pt-8">
-            <div className="relative h-3 rounded-full bg-slate-100">
+            <div className="relative h-3 overflow-hidden rounded-full bg-slate-100">
+              <div className="absolute inset-y-0 rounded-full" style={{ left: pct(8), width: pct(10), background: "hsl(var(--hue) 90% 88%)" }} />
+              {/* how far through the day the selected call is */}
               <div
-                className="absolute inset-y-0 rounded-full bg-brand-100"
-                style={{ left: pct(8), width: pct(10) }}
-                title="Opening hours"
+                className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-700 ease-out"
+                style={{ width: pct(e.hour), background: "linear-gradient(90deg, transparent, hsl(var(--hue) 80% 55% / 0.35))" }}
               />
             </div>
-            <div className="absolute top-1 text-[0.6875rem] font-medium uppercase tracking-wider text-brand-600" style={{ left: pct(8) }}>
+            <div className="absolute top-1 text-[0.6875rem] font-medium uppercase tracking-wider" style={{ left: pct(8), color: "hsl(var(--hue) 75% 40%)" }}>
               Open 8am–6pm
             </div>
             {DAY.map((d, i) => (
@@ -410,9 +785,10 @@ function DayTimeline() {
               >
                 <span
                   className={cx(
-                    "block rounded-full border-2 border-white shadow transition",
-                    sel === i ? "size-5 bg-slate-950 ring-4 ring-slate-950/10" : "size-3.5 bg-brand-500 group-hover:scale-125",
+                    "block rounded-full border-2 border-white shadow transition-all duration-300",
+                    sel === i ? "size-5 bg-slate-950 ring-4 ring-slate-950/10" : "size-3.5 group-hover:scale-125",
                   )}
+                  style={sel === i ? undefined : { background: "hsl(var(--hue) 80% 50%)" }}
                 />
               </button>
             ))}
@@ -423,16 +799,12 @@ function DayTimeline() {
             </div>
           </div>
 
-          {/* chips for small screens, where dots are fiddly */}
           <div className="-mx-1 mt-4 flex gap-2 overflow-x-auto px-1 pb-1 lg:hidden">
             {DAY.map((d, i) => (
               <button
                 key={d.time}
                 onClick={() => setSel(i)}
-                className={cx(
-                  "shrink-0 rounded-full px-3 py-1.5 text-sm font-medium",
-                  sel === i ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-600",
-                )}
+                className={cx("shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition", sel === i ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-600")}
               >
                 {d.time}
               </button>
@@ -440,7 +812,7 @@ function DayTimeline() {
           </div>
 
           <div key={sel} className="mt-6 grid gap-6 border-t border-slate-100 pt-8 lg:grid-cols-[14rem_1fr]">
-            <div>
+            <div className="swap-in">
               <div className="flex items-center gap-2 text-sm font-medium text-slate-500">
                 <e.icon className="size-4" />
                 {e.tag}
@@ -448,18 +820,18 @@ function DayTimeline() {
               <div className="tabular mt-1 font-display text-5xl">{e.time}</div>
             </div>
             <div className="space-y-3">
-              <div className="flex justify-end">
+              <div className="bubble-in flex justify-end">
                 <p className="max-w-lg rounded-2xl rounded-br-md bg-slate-950 px-4 py-3 text-white">{e.caller}</p>
               </div>
-              <div className="flex">
-                <p className="max-w-lg rounded-2xl rounded-bl-md bg-brand-50 px-4 py-3 text-slate-800 ring-1 ring-brand-100">
+              <div className="bubble-in flex" style={{ animationDelay: "0.25s" }}>
+                <p className="max-w-lg rounded-2xl rounded-bl-md px-4 py-3 text-slate-800" style={{ background: "hsl(var(--hue) 90% 95%)", boxShadow: "inset 0 0 0 1px hsl(var(--hue) 80% 88%)" }}>
                   {e.reply}
                 </p>
               </div>
             </div>
           </div>
-          <p className="mt-6 text-xs text-slate-400">An example day for a dental clinic. Your assistant answers using the details you give it.</p>
-        </div>
+          <p className="mt-6 text-xs text-slate-400">An example day for a dental clinic. Your agent answers using the details you give it.</p>
+        </Reveal>
       </div>
     </section>
   );
@@ -484,6 +856,7 @@ function Slider({
   suffix?: string;
   onChange: (v: number) => void;
 }) {
+  const fill = ((value - min) / (max - min)) * 100;
   return (
     <label className="block">
       <div className="flex items-baseline justify-between">
@@ -500,7 +873,8 @@ function Slider({
         step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="mt-3 w-full accent-brand-400"
+        className="mt-3 h-1.5 w-full cursor-pointer appearance-none rounded-full accent-brand-400"
+        style={{ background: `linear-gradient(90deg, rgb(96 165 250) ${fill}%, rgb(255 255 255 / 0.12) ${fill}%)` }}
       />
     </label>
   );
@@ -509,65 +883,52 @@ function Slider({
 function MissedCalls() {
   const [missed, setMissed] = useState(8);
   const [rate, setRate] = useState(30);
-  const [spend, setSpend] = useState(50);
+  const [spend, setSpend] = useState(1500);
   const yearly = useMemo(() => Math.round(missed * 52 * (rate / 100) * spend), [missed, rate, spend]);
   const customers = Math.round(missed * 52 * (rate / 100));
 
   return (
     <section id="cost" className="scroll-mt-16 px-3 sm:px-5">
-      <div className="relative mx-auto max-w-[90rem] overflow-hidden rounded-[2rem] bg-slate-950 px-5 py-24 text-white sm:px-8">
-        <div className="absolute -right-40 -top-40 size-[30rem] rounded-full bg-brand-600/25 blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 size-[26rem] rounded-full bg-violet-600/20 blur-3xl" />
+      <div className="relative mx-auto max-w-[90rem] overflow-hidden rounded-[2rem] bg-[radial-gradient(80%_60%_at_100%_0%,rgb(37_99_235/0.35),transparent),radial-gradient(60%_50%_at_0%_100%,rgb(124_58_237/0.3),transparent)] bg-slate-950 px-5 py-24 text-white sm:px-8">
         <div className="relative mx-auto grid max-w-6xl gap-14 lg:grid-cols-2 lg:items-center">
           <div>
-            <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              <span className="h-px w-6 bg-slate-600" />
-              What missed calls cost you
-            </div>
-            <h2 className="mt-4 font-display text-5xl leading-[1.02] tracking-tight sm:text-6xl">
+            <Reveal>
+              <Eyebrow dark>What missed calls cost you</Eyebrow>
+            </Reveal>
+            <Reveal as="h2" variant="blur" index={1} className="mt-4 font-display text-5xl leading-[1.02] tracking-tight sm:text-6xl">
               Every unanswered call
               <br />
               <em className="text-brand-300">is a customer calling someone else.</em>
-            </h2>
-            <p className="mt-6 max-w-md text-lg text-slate-400">
+            </Reveal>
+            <Reveal index={2} as="p" className="mt-6 max-w-md text-lg text-slate-400">
               Move the sliders to match your business and see what's at stake in a year.
-            </p>
+            </Reveal>
           </div>
 
-          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 backdrop-blur sm:p-8">
+          <Reveal variant="scale" index={1} className="rounded-3xl border border-white/10 bg-white/[0.05] p-6 backdrop-blur sm:p-8">
             <div className="space-y-7">
               <Slider label="Calls you miss in a week" value={missed} min={1} max={60} onChange={setMissed} />
               <Slider label="How many would become customers" value={rate} min={5} max={100} step={5} suffix="%" onChange={setRate} />
-              <Slider label="What a new customer spends" value={spend} min={5} max={1000} step={5} onChange={setSpend} />
+              <Slider label="What a new customer spends" value={spend} min={100} max={20000} step={100} onChange={setSpend} />
             </div>
             <div className="mt-8 border-t border-white/10 pt-7">
               <div className="text-sm text-slate-400">Potential business missed in a year</div>
-              <div className="tabular mt-1 font-display text-6xl leading-none text-white sm:text-7xl">{yearly.toLocaleString()}</div>
-              <div className="mt-2 text-sm text-slate-400">
-                About {customers.toLocaleString()} new customers, in your own currency.
-              </div>
+              <CountUp value={yearly} className="tabular mt-1 block font-display text-6xl leading-none text-white sm:text-7xl" />
+              <div className="mt-2 text-sm text-slate-400">About {customers.toLocaleString()} new customers, in your own currency.</div>
             </div>
             <p className="mt-6 text-xs text-slate-500">
-              An estimate from the numbers you entered, not a promise. Answering calls helps, but
-              customers still decide for themselves.
+              An estimate from the numbers you entered, not a promise. Answering calls helps, but customers still decide for themselves.
             </p>
-          </div>
+          </Reveal>
         </div>
       </div>
     </section>
   );
 }
 
-// ---------- features bento ----------
+// ---------- features ----------
 
-const GREETINGS: [string, string][] = [
-  ["English", "Hello, how can I help you today?"],
-  ["Español", "Hola, ¿en qué puedo ayudarle?"],
-  ["Kiswahili", "Habari, nikusaidie vipi leo?"],
-  ["Français", "Bonjour, comment puis-je vous aider ?"],
-  ["Deutsch", "Hallo, wie kann ich Ihnen helfen?"],
-  ["Português", "Olá, como posso ajudar?"],
-];
+const VOICES = ["Clara", "Nora", "Harper", "Patricia", "Owen", "Marco", "Milo", "Jonah"];
 
 function useCycle(length: number, ms: number) {
   const reduced = useReducedMotion();
@@ -580,40 +941,47 @@ function useCycle(length: number, ms: number) {
   return i;
 }
 
-function Tile({ className, title, body, children }: { className?: string; title: string; body: string; children: ReactNode }) {
+function Tile({ className, title, body, children, index }: { className?: string; title: string; body: string; children: ReactNode; index: number }) {
   return (
-    <div className={cx("flex flex-col overflow-hidden rounded-[1.5rem] border border-slate-200/80 bg-white", className)}>
-      <div className="relative flex flex-1 items-center justify-center bg-slate-50/70 p-6">{children}</div>
+    <Reveal
+      index={index}
+      className={cx(
+        "group flex flex-col overflow-hidden rounded-[1.5rem] border border-slate-200/80 bg-white transition duration-500 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5",
+        className,
+      )}
+    >
+      <div className="relative flex min-h-48 flex-1 items-center justify-center bg-slate-50/70 p-6">{children}</div>
       <div className="p-6">
         <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
         <p className="mt-1.5 text-slate-600">{body}</p>
       </div>
-    </div>
+    </Reveal>
   );
 }
 
 function Features() {
-  const g = useCycle(GREETINGS.length, 2200);
   const tidy = useCycle(2, 2600) === 1;
+  const voice = useCycle(VOICES.length, 1400);
+  const orbStep = useCycle(4, 1600);
+  const orbStatus = (["listening", "thinking", "speaking", "speaking"] as CallStatus[])[orbStep];
+
   return (
     <section id="features" className="scroll-mt-16 py-28">
       <div className="mx-auto max-w-7xl px-5 sm:px-8">
-        <div className="max-w-2xl">
-          <Eyebrow>Features</Eyebrow>
-          <h2 className="mt-4 font-display text-5xl leading-[1.02] tracking-tight sm:text-6xl">
-            A receptionist that <em className="text-slate-400">never takes a day off.</em>
-          </h2>
-        </div>
+        <SectionTitle eyebrow="What your agent does">
+          A front desk that <em className="text-slate-400">never takes a day off.</em>
+        </SectionTitle>
 
         <div className="mt-14 grid gap-4 md:grid-cols-6">
           <Tile
+            index={0}
             className="md:col-span-4"
             title="Knows your business inside out"
-            body="Write your hours and prices however you like. AI tidies the wording, and you approve every change."
+            body="Write your hours, services and prices however you like. AI tidies the wording, and you approve every change."
           >
             <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="text-xs font-medium uppercase tracking-wider text-slate-400">Opening hours</div>
-              <p className={cx("mt-2 min-h-[3rem] transition-all duration-500", tidy ? "text-slate-800" : "font-mono text-sm text-slate-500")}>
+              <p key={String(tidy)} className={cx("swap-in mt-2 min-h-[3rem]", tidy ? "text-slate-800" : "font-mono text-sm text-slate-500")}>
                 {tidy ? "Monday to Saturday, 8am–6pm. Closed on Sundays." : "mon-sat 8 to 6 sun closed"}
               </p>
               <div className="mt-3 flex items-center gap-1.5 text-xs font-medium text-violet-600">
@@ -623,28 +991,23 @@ function Features() {
             </div>
           </Tile>
 
-          <Tile className="md:col-span-2" title="Speaks their language" body="English, Spanish, Swahili, French and more.">
-            <div className="text-center">
-              <div className="text-xs font-semibold uppercase tracking-wider text-brand-600">{GREETINGS[g][0]}</div>
-              <p key={g} className="mt-2 font-display text-[1.75rem] leading-tight text-slate-900">
-                “{GREETINGS[g][1]}”
-              </p>
-            </div>
-          </Tile>
-
-          <Tile className="md:col-span-2" title="Sounds like you" body="Pick a warm voice, or record 30 seconds and it speaks in yours.">
-            <div className="w-full">
-              <Waveform active tone="brand" bars={32} />
-              <div className="mt-4 flex justify-center">
-                <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium shadow-sm ring-1 ring-slate-200">
-                  <span className="size-2 rounded-full bg-red-500" />
-                  Recording your voice · 0:24
+          <Tile index={1} className="md:col-span-2" title="A voice that fits" body="Choose from eight warm, natural voices for your agent.">
+            <div className="flex flex-wrap justify-center gap-1.5">
+              {VOICES.map((v, i) => (
+                <span
+                  key={v}
+                  className={cx(
+                    "rounded-full px-3 py-1 text-sm transition-all duration-500",
+                    i === voice ? "scale-110 bg-slate-950 text-white shadow-lg" : "bg-white text-slate-500 ring-1 ring-slate-200",
+                  )}
+                >
+                  {v}
                 </span>
-              </div>
+              ))}
             </div>
           </Tile>
 
-          <Tile className="md:col-span-2" title="Honest, always" body="It only says what you've told it. When it doesn't know, it takes a message.">
+          <Tile index={2} className="md:col-span-2" title="Honest, always" body="It only says what you've told it. When it doesn't know, it takes a message.">
             <div className="w-full max-w-xs space-y-2 text-sm">
               <p className="ml-auto w-fit rounded-2xl rounded-br-md bg-slate-950 px-3.5 py-2 text-white">Can I get it for half price?</p>
               <p className="w-fit rounded-2xl rounded-bl-md bg-brand-50 px-3.5 py-2 text-slate-800 ring-1 ring-brand-100">
@@ -653,35 +1016,44 @@ function Features() {
             </div>
           </Tile>
 
-          <Tile className="md:col-span-2" title="Try it before customers do" body="Talk to your assistant right in your browser and fine-tune it.">
+          <Tile index={3} className="md:col-span-2" title="Talk to it before customers do" body="Try your agent right in your browser and fine-tune anything it says.">
+            <VoiceOrb status={orbStatus} level={orbStatus === "speaking" ? 0.6 : 0.15} className="size-40" />
+          </Tile>
+
+          <Tile index={4} className="md:col-span-2" title="Its own phone line" body="Give your agent a local number. US and Canadian numbers today, more countries soon.">
             <div className="relative flex items-center justify-center">
-              <span className="motion-safe-only absolute size-24 animate-ping rounded-full bg-brand-200/60" />
-              <span className="relative flex size-20 items-center justify-center rounded-full bg-brand-600 text-white shadow-lg shadow-brand-600/30">
-                <Mic className="size-8" />
+              <span className="motion-safe-only absolute size-20 animate-ping rounded-full bg-emerald-200/60" />
+              <span className="relative flex items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-lg ring-1 ring-slate-200">
+                <span className="flex size-9 items-center justify-center rounded-full bg-emerald-500 text-white">
+                  <Phone className="motion-safe-only size-4 animate-ring" />
+                </span>
+                <span className="tabular font-display text-2xl">+1 415 555 0123</span>
               </span>
             </div>
           </Tile>
 
-          <div className="rounded-[1.5rem] border border-dashed border-slate-300 p-6 md:col-span-6">
+          <Reveal index={5} className="rounded-[1.5rem] border border-dashed border-slate-300 p-6 md:col-span-6">
             <div className="flex flex-wrap items-center justify-between gap-6">
               <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="text-lg font-semibold tracking-tight">Works with your tools</h3>
+                  <h3 className="text-lg font-semibold tracking-tight">More of your business, coming soon</h3>
                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">Coming soon</span>
                 </div>
-                <p className="mt-1 text-slate-600">Book appointments, forward your existing number and get call summaries by email.</p>
+                <p className="mt-1 text-slate-600">
+                  Your own shop page, bookings and orders your agent can take, and updates to customers by SMS and email.
+                </p>
               </div>
-              <div className="flex flex-wrap gap-2 opacity-60 grayscale">
+              <div className="flex flex-wrap gap-2">
                 {[
-                  [CalendarCheck, "Calendly"],
-                  [CalendarCheck, "Google Calendar"],
-                  [PhoneForwarded, "Your main number"],
+                  [ShoppingBag, "Your shop"],
+                  [CalendarCheck, "Bookings"],
+                  [MessageSquareText, "SMS updates"],
                   [Mail, "Email"],
                   [MessageCircle, "WhatsApp"],
                 ].map(([Icon, name]) => {
                   const I = Icon as typeof Mail;
                   return (
-                    <span key={name as string} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm">
+                    <span key={name as string} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-500 transition hover:border-slate-300 hover:text-slate-800">
                       <I className="size-4" />
                       {name as string}
                     </span>
@@ -689,44 +1061,68 @@ function Features() {
                 })}
               </div>
             </div>
-          </div>
+          </Reveal>
         </div>
       </div>
     </section>
   );
 }
 
-// ---------- steps ----------
+// ---------- steps, joined by a line that draws itself ----------
 
 function Steps() {
+  const [ref, inView] = useInView<HTMLOListElement>(0.3);
   const steps = [
-    ["Describe your business", "Answer a few simple questions about your hours, services and prices."],
-    ["Hear it for yourself", "Talk to your assistant in the browser and tweak anything you'd say differently."],
-    ["Switch it on", "Choose a phone number and your assistant starts answering straight away."],
+    ["Book a demo", "Tell us a little about your business and pick a time that suits you."],
+    ["We set up your agent", "We build a call agent that knows your hours, services and prices, and you try it together with us."],
+    ["Put it on the line", "Give it a phone number and it starts answering your customers."],
   ];
   return (
     <section className="border-t border-slate-100 py-28">
-      <div className="mx-auto max-w-7xl px-5 sm:px-8">
-        <div className="grid gap-12 lg:grid-cols-[1fr_2fr]">
-          <div>
+      <div className="mx-auto grid max-w-7xl gap-12 px-5 sm:px-8 lg:grid-cols-[1fr_2fr]">
+        <div>
+          <Reveal>
             <Eyebrow>Getting started</Eyebrow>
-            <h2 className="mt-4 font-display text-5xl leading-[1.02] tracking-tight">
-              Three minutes. <em className="text-slate-400">Three steps.</em>
-            </h2>
-            <PrimaryCta className="mt-8">Start now</PrimaryCta>
-          </div>
-          <ol className="divide-y divide-slate-200 border-y border-slate-200">
-            {steps.map(([title, body], i) => (
-              <li key={title} className="grid grid-cols-[4rem_1fr] gap-4 py-8 sm:grid-cols-[6rem_1fr]">
-                <span className="font-display text-5xl leading-none text-slate-300 sm:text-6xl">0{i + 1}</span>
-                <div>
-                  <h3 className="text-xl font-semibold tracking-tight">{title}</h3>
-                  <p className="mt-1.5 max-w-lg text-slate-600">{body}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
+          </Reveal>
+          <Reveal as="h2" variant="blur" index={1} className="mt-4 font-display text-5xl leading-[1.02] tracking-tight">
+            Three steps <em className="text-slate-400">to a calm phone.</em>
+          </Reveal>
+          <Reveal index={2}>
+            <PrimaryCta className="mt-8">Book a demo</PrimaryCta>
+          </Reveal>
         </div>
+        <ol ref={ref} className="relative space-y-10 pl-16 sm:pl-24">
+          <svg className="absolute bottom-6 left-[1.4rem] top-6 h-[calc(100%-3rem)] w-px overflow-visible sm:left-[2.4rem]" aria-hidden>
+            <line
+              x1="0"
+              y1="0"
+              x2="0"
+              y2="100%"
+              stroke="hsl(217 85% 60%)"
+              strokeWidth="2"
+              strokeLinecap="round"
+              pathLength={1}
+              strokeDasharray="1"
+              strokeDashoffset={inView ? 0 : 1}
+              style={{ transition: "stroke-dashoffset 1.6s cubic-bezier(.2,.7,.2,1) .2s" }}
+            />
+          </svg>
+          {steps.map(([title, body], i) => (
+            <Reveal as="li" key={title} index={i + 1} className="relative">
+              <span
+                className={cx(
+                  "absolute -left-16 top-0 flex size-11 items-center justify-center rounded-full border bg-white font-display text-2xl transition-colors duration-500 sm:-left-24 sm:size-12",
+                  inView ? "border-brand-500 text-brand-600" : "border-slate-200 text-slate-300",
+                )}
+                style={{ transitionDelay: `${0.4 + i * 0.5}s` }}
+              >
+                {i + 1}
+              </span>
+              <h3 className="text-xl font-semibold tracking-tight">{title}</h3>
+              <p className="mt-1.5 max-w-lg text-slate-600">{body}</p>
+            </Reveal>
+          ))}
+        </ol>
       </div>
     </section>
   );
@@ -735,40 +1131,60 @@ function Steps() {
 // ---------- faq ----------
 
 const FAQS: [string, string][] = [
-  ["Do I need any technical knowledge?", "No. If you can fill in a form, you can set up CalMe. You answer a few questions about your business and we do the rest."],
+  ["Do I need any technical knowledge?", "No. Book a demo, tell us about your business, and we set your call agent up with you."],
   ["Will callers know it's an AI?", "It speaks naturally and politely. If a caller sincerely asks, it tells them it's the virtual assistant for your business."],
   ["What if it doesn't know the answer?", "It won't make things up. It says it doesn't have that information and offers to take a message so you can call back."],
-  ["Can I keep my current number?", "You can get a new local number today. Forwarding from your existing number is coming soon."],
+  ["Which languages does it speak?", "English today. More languages are on the way."],
+  ["Can I keep my current number?", "You can get a new local number in the US or Canada today. Forwarding from the number you already have is coming soon."],
+  ["Can it take bookings or orders?", "Not yet. Today it answers questions and takes messages. Bookings, orders and SMS and email updates are coming next."],
   ["Can I change what it says?", "Any time. Update your hours, prices or greeting and it uses them from the very next call."],
-  ["Is my voice safe?", "A custom voice can only be created after you confirm it's your own voice, or that you have the speaker's permission."],
 ];
 
 function Faq() {
+  const [open, setOpen] = useState(0);
   return (
     <section id="faq" className="scroll-mt-16 border-t border-slate-100 py-28">
       <div className="mx-auto grid max-w-7xl gap-12 px-5 sm:px-8 lg:grid-cols-[1fr_2fr]">
         <div>
-          <Eyebrow>Questions</Eyebrow>
-          <h2 className="mt-4 font-display text-5xl leading-[1.02] tracking-tight">
+          <Reveal>
+            <Eyebrow>Questions</Eyebrow>
+          </Reveal>
+          <Reveal as="h2" variant="blur" index={1} className="mt-4 font-display text-5xl leading-[1.02] tracking-tight">
             Good to <em className="text-slate-400">know.</em>
-          </h2>
-          <div className="mt-6 flex items-center gap-2 text-sm text-slate-500">
+          </Reveal>
+          <Reveal index={2} className="mt-6 flex items-center gap-2 text-sm text-slate-500">
             <ShieldCheck className="size-4 text-emerald-600" />
             Honest answers, no fine print.
-          </div>
+          </Reveal>
         </div>
         <div className="divide-y divide-slate-200 border-y border-slate-200">
-          {FAQS.map(([q, a], i) => (
-            <details key={q} className="group py-6" open={i === 0}>
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-6 text-lg font-medium [&::-webkit-details-marker]:hidden">
-                {q}
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-slate-200 transition group-open:rotate-45 group-open:bg-slate-950 group-open:text-white">
-                  <Plus className="size-4" />
-                </span>
-              </summary>
-              <p className="mt-3 max-w-2xl text-slate-600">{a}</p>
-            </details>
-          ))}
+          {FAQS.map(([q, a], i) => {
+            const isOpen = open === i;
+            return (
+              <Reveal key={q} index={i} className="py-6">
+                <button
+                  onClick={() => setOpen(isOpen ? -1 : i)}
+                  aria-expanded={isOpen}
+                  className="flex w-full items-center justify-between gap-6 text-left text-lg font-medium"
+                >
+                  {q}
+                  <span
+                    className={cx(
+                      "flex size-8 shrink-0 items-center justify-center rounded-full border border-slate-200 transition duration-300",
+                      isOpen && "rotate-45 border-slate-950 bg-slate-950 text-white",
+                    )}
+                  >
+                    <Plus className="size-4" />
+                  </span>
+                </button>
+                <div className={cx("grid transition-[grid-template-rows] duration-500 ease-out", isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+                  <p className={cx("overflow-hidden text-slate-600 transition-opacity duration-500", isOpen ? "opacity-100" : "opacity-0")}>
+                    <span className="block max-w-2xl pt-3">{a}</span>
+                  </p>
+                </div>
+              </Reveal>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -779,33 +1195,29 @@ function Faq() {
 
 function Closing() {
   return (
-    <section className="px-3 pb-3 sm:px-5 sm:pb-5">
+    <section className="px-3 pb-3 sm:px-5 sm:pb-5" style={{ "--hue": 217 } as CSSProperties}>
       <div className="relative mx-auto max-w-[90rem] overflow-hidden rounded-[2rem] bg-slate-950 px-5 pb-0 pt-24 text-center text-white sm:px-8">
         <div className="absolute left-1/2 top-0 h-72 w-[40rem] -translate-x-1/2 rounded-full bg-brand-600/30 blur-3xl" />
-        <h2 className="relative font-display text-6xl leading-[0.95] tracking-tight sm:text-8xl">
+        <Reveal variant="scale" className="relative mx-auto -mb-6 flex justify-center">
+          <VoiceOrb status="speaking" level={0.35} className="size-40" />
+        </Reveal>
+        <Reveal as="h2" variant="blur" index={1} className="relative font-display text-6xl leading-[0.95] tracking-tight sm:text-8xl">
           Let it ring.
-        </h2>
-        <p className="relative mx-auto mt-6 max-w-md text-lg text-slate-400">
-          Your assistant's got it. Set it up in minutes and hear it for yourself.
-        </p>
-        <Link
-          to={SETUP}
-          className="group relative mt-9 inline-flex h-12 items-center gap-2 rounded-full bg-white pl-6 pr-2 text-[0.9375rem] font-medium text-slate-950 hover:bg-slate-100"
-        >
-          Set up your assistant
-          <span className="flex size-8 items-center justify-center rounded-full bg-brand-500 text-white transition group-hover:translate-x-0.5">
-            <ArrowRight className="size-4" />
-          </span>
-        </Link>
+        </Reveal>
+        <Reveal as="p" index={2} className="relative mx-auto mt-6 max-w-md text-lg text-slate-400">
+          Your call agent's got it. Book a demo and we'll set one up for your business.
+        </Reveal>
+        <Reveal index={3} className="relative mt-9">
+          <PrimaryCta light>Book a demo</PrimaryCta>
+        </Reveal>
         <div className="relative mx-auto mt-20 max-w-4xl opacity-60">
           <Waveform active tone="white" bars={64} className="h-24" />
         </div>
         <footer className="relative mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-white/10 py-8 text-sm text-slate-400">
           <Logo dark />
           <div className="flex gap-6">
-            <a href="#day" className="hover:text-white">A day with CalMe</a>
+            <a href="#street" className="hover:text-white">Every business</a>
             <a href="#faq" className="hover:text-white">Questions</a>
-            <Link to={SIGN_IN} className="hover:text-white">Sign in</Link>
           </div>
           <span>© {new Date().getFullYear()} CalMe</span>
         </footer>
@@ -815,19 +1227,41 @@ function Closing() {
 }
 
 export default function Landing() {
+  const [index, setIndex] = useState(0);
+  const [booking, setBooking] = useState(false);
+  const reduced = useReducedMotion();
+  const biz = BUSINESSES[index];
+
+  // the headline names a different kind of business every few seconds
+  useEffect(() => {
+    if (reduced) return;
+    const id = window.setInterval(() => setIndex((i) => (i + 1) % BUSINESSES.length), 3200);
+    return () => window.clearInterval(id);
+  }, [reduced]);
+
+  const openBooking = useCallback(() => setBooking(true), []);
+
   return (
-    <div id="landing-scroll" className="h-full overflow-y-auto scroll-smooth bg-white text-slate-950">
-      <Nav />
-      <main>
-        <Hero />
-        <Marquee />
-        <DayTimeline />
-        <MissedCalls />
-        <Features />
-        <Steps />
-        <Faq />
-        <Closing />
-      </main>
-    </div>
+    <BookDemoContext.Provider value={openBooking}>
+      <div
+        id="landing-scroll"
+        className="h-full overflow-y-auto overflow-x-hidden scroll-smooth bg-white text-slate-950"
+        style={{ "--hue": biz.hue, transition: "--hue 900ms ease" } as CSSProperties}
+      >
+        <Nav />
+        <main>
+          <Hero index={index} />
+          <Showcase />
+          <Live3 />
+          <DayTimeline />
+          <MissedCalls />
+          <Features />
+          <Steps />
+          <Faq />
+          <Closing />
+        </main>
+      </div>
+      <BookDemo open={booking} onClose={() => setBooking(false)} />
+    </BookDemoContext.Provider>
   );
 }

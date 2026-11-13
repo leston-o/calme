@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AgentSession, FishAgentError, type EndReason } from "@fishaudio/agent-client";
+import { AgentSession, FishAgentError, type EndReason, type SessionToken } from "@fishaudio/agent-client";
 import { api, errorMessage } from "./api";
 
 // The call itself runs on Fish Audio: our backend creates a session token for the
@@ -35,7 +35,8 @@ function callErrorMessage(err: unknown): string {
   return errorMessage(err);
 }
 
-export function useLiveCall(agentId: string) {
+/** Talk live to an agent: pass its id, or a function that fetches a session token. */
+export function useLiveCall(source: string | (() => Promise<SessionToken>)) {
   const [status, setStatus] = useState<CallStatus>("idle");
   const [lines, setLines] = useState<CallLine[]>([]);
   const [level, setLevel] = useState(0);
@@ -72,7 +73,7 @@ export function useLiveCall(agentId: string) {
     setLines([]);
     setStatus("connecting");
     try {
-      const sessionToken = await api.startSession(agentId);
+      const sessionToken = typeof source === "string" ? await api.startSession(source) : await source();
       const session = await AgentSession.start({
         sessionToken,
         callbacks: {
@@ -100,7 +101,7 @@ export function useLiveCall(agentId: string) {
     } finally {
       s.starting = false;
     }
-  }, [agentId, s, log, startMeter, stopMeter]);
+  }, [source, s, log, startMeter, stopMeter]);
 
   const hangUp = useCallback(() => {
     void s.session?.end();

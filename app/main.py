@@ -10,8 +10,10 @@ from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import setup_logging
+from app.core.rate_limit import RateLimiter
 from app.db.session import create_engine, create_session_factory
 from app.providers.fish_agent import FishAgentClient, FishAgents, FishAgentTelephony
+from app.providers.email import SmtpEmail
 from app.providers.fish_audio import FishAudioSTT, FishAudioTTS
 from app.providers.ollama import OllamaLLM
 from app.repositories.in_memory import InMemoryAgentRepository
@@ -70,6 +72,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.telephony = None
             logger.warning("Twilio keys not set; phone numbers disabled")
         
+        # EMAIL: demo requests from the landing page
+        if settings.smtp_username and settings.smtp_password:
+            app.state.email = SmtpEmail(
+                settings.smtp_host, settings.smtp_port, settings.smtp_username, settings.smtp_password
+            )
+        else:
+            app.state.email = None
+            logger.warning("SMTP not set; demo requests disabled")
+
+        app.state.demo_request_limit = RateLimiter(5, 3600)
+        app.state.demo_session_ip_limit = RateLimiter(settings.demo_sessions_per_ip_per_hour, 3600)
+        app.state.demo_session_global_limit = RateLimiter(settings.demo_sessions_per_hour, 3600)
+
         logger.info("%s started (%s)", settings.app_name, settings.environment)
         yield
 

@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: calme-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: calme
+      POSTGRES_PASSWORD: calme
+      POSTGRES_DB: calme
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - calme_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U calme -d calme"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  calme_pgdata:

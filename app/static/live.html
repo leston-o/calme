@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CalMe live test</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+    input { width: 100%; padding: .5rem; margin-bottom: .5rem; box-sizing: border-box; }
+    button { padding: .5rem 1rem; margin-right: .5rem; }
+    #status { margin: 1rem 0; font-weight: 600; }
+    #log div { padding: .4rem .6rem; margin: .3rem 0; border-radius: 6px; }
+    .you { background: #e8f0fe; }
+    .agent { background: #e6f4ea; }
+    .error { background: #fce8e6; }
+    .system { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>CalMe live test</h1>
+  <p>Use headphones, otherwise the agent's voice can leak into your mic and interrupt itself.</p>
+  <input id="agentId" placeholder="Paste an agent ID">
+  <button id="start">Start call</button>
+  <button id="stop" disabled>Hang up</button>
+  <div id="status">Idle</div>
+  <div id="log"></div>
+
+<script>
+  // ---- tuning ----
+  const SPEECH_RMS = 0.015;   // raise if background noise triggers it, lower if it misses you
+  const SILENCE_MS = 900;     // quiet time that ends your sentence
+  const MIN_SPEECH_MS = 300;  // ignore blips shorter than this
+  const SEND_RATE = 16000;    // sample rate sent to the server
+
+  const $ = (id) => document.getElementById(id);
+  const startBtn = $("start"), stopBtn = $("stop");
+
+  let ws, audioCtx, micStream, processor;
+  let recording = false, chunks = [], prevFrame = null;
+  let speechMs = 0, silenceMs = 0, interruptSent = false, discarding = false;
+  let queue = [], current = null;
+
+  function log(kind, text) {
+    const d = document.createElement("div");
+    d.className = kind;
+    d.textContent = (kind === "you" ? "You: " : kind === "agent" ? "Agent: " : "") + text;
+    $("log").appendChild(d);
+    d.scrollIntoView({ block: "end" });
+  }
+  const setStatus = (t) => ($("status").textContent = t);
+
+  // ---- playback ----
+  const isAgentSpeaking = () => current !== null || queue.length > 0;
+
+  function enqueue(buf) {
+    queue.push(new Blob([buf], { type: "audio/mpeg" }));
+    if (!current) playNext();
+  }
+
+  function playNext() {
+    const blob = queue.shift();
+    if (!blob) { current = null; setStatus("Listening..."); return; }
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    current = audio;
+    const next = () => { URL.revokeObjectURL(url); playNext(); };
+    audio.onended = next;
+    audio.onerror = next;
+    setStatus("Agent speaking...");
+    audio.play().catch(next);
+  }
+
+  function stopPlayback() {
+    queue = [];
+    if (current) { current.onended = null; current.onerror = null; current.pause(); current = null; }
+  }
+
+  function interrupt() {
+    stopPlayback();
+    discarding = true; // ignore stale audio from the cancelled reply
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "interrupt" }));
+  }
+
+  // ---- microphone + simple voice detection ----
+  function onAudio(e) {
+    const input = e.inputBuffer.getChannelData(0);
+    let sum = 0;
+    for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
+    const rms = Math.sqrt(sum / input.length);
+    const frameMs = (1000 * input.length) / audioCtx.sampleRate;
+    const frame = new Float32Array(input);
+
+    if (rms > SPEECH_RMS) {
+      if (!recording) {
+        recording = true; chunks = []; speechMs = 0; interruptSent = false;
+        if (prevFrame) chunks.push(prevFrame); // keep a little audio before speech began
+      }
+      speechMs += frameMs; silenceMs = 0;
+      chunks.push(frame);
+      if (!interruptSent && speechMs >= MIN_SPEECH_MS) { interruptSent = true; interrupt(); }
+    } else if (recording) {
+      chunks.push(frame);
+      silenceMs += frameMs;
+      if (silenceMs >= SILENCE_MS) finishUtterance();
+    }
+    prevFrame = frame;
+  }
+
+  function finishUtterance() {
+    recording = false; silenceMs = 0;
+    if (speechMs < MIN_SPEECH_MS) { chunks = []; return; }
+    const wav = encodeWav(chunks, audioCtx.sampleRate, SEND_RATE);
+    chunks = [];
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(wav);
+      setStatus("Thinking...");
+    }
+  }
+
+  function encodeWav(frames, inRate, outRate) {
+    const total = frames.reduce((n, f) => n + f.length, 0);
+    const data = new Float32Array(total);
+    let offset = 0;
+    for (const f of frames) { data.set(f, offset); offset += f.length; }
+
+    const ratio = inRate / outRate;
+    const outLen = Math.floor(data.length / ratio);
+    const pcm = new Int16Array(outLen);
+    for (let i = 0; i < outLen; i++) {
+      const pos = i * ratio, i0 = Math.floor(pos);
+      const i1 = Math.min(i0 + 1, data.length - 1), frac = pos - i0;
+      const s = Math.max(-1, Math.min(1, data[i0] * (1 - frac) + data[i1] * frac));
+      pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+
+    const buffer = new ArrayBuffer(44 + pcm.length * 2);
+    const v = new DataView(buffer);
+    const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    str(0, "RIFF"); v.setUint32(4, 36 + pcm.length * 2, true); str(8, "WAVE");
+    str(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, outRate, true); v.setUint32(28, outRate * 2, true);
+    v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    str(36, "data"); v.setUint32(40, pcm.length * 2, true);
+    new Int16Array(buffer, 44).set(pcm);
+    return buffer;
+  }
+
+  async function startMic() {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
+    });
+    audioCtx = new AudioContext();
+    const source = audioCtx.createMediaStreamSource(micStream);
+    processor = audioCtx.createScriptProcessor(4096, 1, 1);
+    processor.onaudioprocess = onAudio;
+    source.connect(processor);
+    processor.connect(audioCtx.destination); // required for the processor to run; outputs silence
+  }
+
+  // ---- connection ----
+  function onMessage(ev) {
+    if (typeof ev.data !== "string") { if (!discarding) enqueue(ev.data); return; }
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "ready") log("system", "Connected to " + msg.agent);
+    else if (msg.type === "user_text") { discarding = false; log("you", msg.text); }
+    else if (msg.type === "agent_text") { if (!discarding) log("agent", msg.text); }
+    else if (msg.type === "turn_done") { discarding = false; }
+    else if (msg.type === "error") { log("error", msg.message); setStatus("Listening..."); }
+  }
+
+  function start() {
+    const id = $("agentId").value.trim();
+    if (!id) return;
+    ws = new WebSocket(`ws://${location.host}/api/v1/agents/${id}/live`);
+    ws.binaryType = "arraybuffer";
+    ws.onmessage = onMessage;
+    ws.onopen = async () => {
+      try {
+        await startMic();
+        startBtn.disabled = true; stopBtn.disabled = false;
+        setStatus("Listening...");
+      } catch (err) {
+        log("error", "Microphone error: " + err.message);
+        ws.close();
+      }
+    };
+    ws.onclose = (ev) => {
+      log("system", "Call ended" + (ev.reason ? ": " + ev.reason : ""));
+      cleanup();
+    };
+  }
+
+  function cleanup() {
+    stopPlayback();
+    if (processor) { processor.disconnect(); processor = null; }
+    if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
+    if (audioCtx) { audioCtx.close(); audioCtx = null; }
+    recording = false; chunks = [];
+    startBtn.disabled = false; stopBtn.disabled = true;
+    setStatus("Idle");
+  }
+
+  startBtn.onclick = start;
+  stopBtn.onclick = () => ws && ws.close();
+</script>
+</body>
+</html>

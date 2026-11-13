@@ -345,9 +345,16 @@ function TryAmani() {
   const startDemo = useCallback(async () => {
     try {
       return await api.demoSession();
-    } catch (err) {
-      if (err instanceof ApiError && err.code === "rate_limited") throw new Error(err.message);
-      throw new Error("Amani is taking a short break. Book a demo and we'll introduce you properly.");
+    } catch (err: any) {
+      // Check the code property directly instead of instanceof
+      if (err?.code === "rate_limited") {
+        throw new Error(err.message);
+      }
+    
+       // Optional: log the real error to the console so you can see what's actually failing
+      console.error("Demo session failed:", err);
+    
+       throw new Error("Amani is taking a short break. Book a demo and we'll introduce you properly.");
     }
   }, []);
   const call = useLiveCall(startDemo);

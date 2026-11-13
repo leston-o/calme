@@ -16,22 +16,50 @@ const LOOK: Record<CallStatus, { colors: [Rgb, Rgb, Rgb]; speed: number; glow: R
 const mix = (a: Rgb, b: Rgb, t: number): Rgb => [0, 1, 2].map((i) => a[i] + (b[i] - a[i]) * t) as Rgb;
 const rgba = (c: Rgb, a: number) => `rgba(${c[0] | 0}, ${c[1] | 0}, ${c[2] | 0}, ${a})`;
 
+/** Turn a colour round the colour wheel, keeping its saturation and lightness. */
+function shiftHue([r, g, b]: Rgb, degrees: number): Rgb {
+  if (!degrees) return [r, g, b];
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d === 0) return [r * 255, g * 255, b * 255];
+  const s = d / (1 - Math.abs(2 * l - 1));
+  let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  h = (((h * 60 + degrees) % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  const [r1, g1, b1] =
+    h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return [(r1 + m) * 255, (g1 + m) * 255, (b1 + m) * 255];
+}
+
+// The palettes above are built around blue.
+const BASE_HUE = 217;
+
 /** An animated sphere that shows what the assistant is doing and pulses with the voice. */
 export default function VoiceOrb({
   status,
   level,
+  hue,
   className,
 }: {
   status: CallStatus;
   /** 0–1: how loud the current speaker is. */
   level: number;
+  /** Tint the orb towards this hue (0–360). Its own colours are built around blue, 217. */
+  hue?: number;
   className?: string;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const shadow = useRef<HTMLSpanElement>(null);
   // The draw loop reads these refs so it never restarts on state changes.
-  const target = useRef({ status, level });
-  target.current = { status, level };
+  const target = useRef({ status, level, hue });
+  target.current = { status, level, hue };
 
   useEffect(() => {
     const el = canvas.current;
@@ -51,10 +79,11 @@ export default function VoiceOrb({
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       const look = LOOK[target.current.status];
-      // ease towards the current state so changes blend instead of jumping
+      const turn = target.current.hue === undefined ? 0 : target.current.hue - BASE_HUE;
+      // ease towards the current state (and hue) so changes blend instead of jumping
       const k = 1 - Math.exp(-dt * 6);
-      colors = colors.map((c, i) => mix(c, look.colors[i], k));
-      glow = mix(glow, look.glow, k);
+      colors = colors.map((c, i) => mix(c, shiftHue(look.colors[i], turn), k));
+      glow = mix(glow, shiftHue(look.glow, turn), k);
       speed += (look.speed - speed) * k;
       level += (target.current.level - level) * (1 - Math.exp(-dt * 14));
       if (!still) t += dt * speed;

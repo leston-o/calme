@@ -10,7 +10,7 @@ export default function Waveform({
   className,
 }: {
   active: boolean;
-  tone: "brand" | "slate" | "white";
+  tone: "brand" | "slate" | "white" | "current";
   bars?: number;
   className?: string;
 }) {
@@ -32,7 +32,7 @@ export default function Waveform({
     return () => window.clearInterval(id);
   }, [active, bars, reduced]);
 
-  const color = { brand: "bg-brand-500", slate: "bg-slate-400", white: "bg-white/70" }[tone];
+  const color = { brand: "bg-brand-500", slate: "bg-slate-400", white: "bg-white/70", current: "bg-current" }[tone];
   return (
     <div className={cx("flex h-14 items-center gap-[3px]", className)} aria-hidden>
       {heights.map((h, i) => (

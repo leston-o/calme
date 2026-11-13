@@ -48,3 +48,58 @@ body { font-feature-settings: "cv11", "ss01"; }
 @media (prefers-reduced-motion: reduce) {
   .motion-safe-only { animation: none !important; }
 }
+
+/* ---------- landing motion ---------- */
+
+/* lets the hero's business colour glide instead of jumping */
+@property --hue {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 217;
+}
+
+[data-reveal] {
+  transition:
+    opacity 0.9s cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1),
+    filter 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition-delay: calc(var(--i, 0) * 90ms);
+}
+[data-reveal]:not(.is-in) { opacity: 0; }
+[data-reveal="up"]:not(.is-in) { transform: translateY(28px); }
+[data-reveal="blur"]:not(.is-in) { filter: blur(12px); transform: translateY(12px); }
+[data-reveal="scale"]:not(.is-in) { transform: scale(0.94); }
+[data-reveal="left"]:not(.is-in) { transform: translateX(-32px); }
+
+@keyframes word-in {
+  from { opacity: 0; transform: translateY(0.45em) rotateX(-70deg); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+.word-in { display: inline-block; animation: word-in 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both; transform-origin: 50% 100%; }
+
+@keyframes bubble-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+.bubble-in { animation: bubble-in 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+
+@keyframes swap-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+.swap-in { animation: swap-in 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+
+
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes fill-bar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal] { transition: none !important; opacity: 1 !important; transform: none !important; filter: none !important; }
+  .word-in, .bubble-in, .swap-in { animation: none !important; }
+}
+
+/* the logo's wave draws itself in, then ripples once more on hover */
+@keyframes calme-wave-in { from { stroke-dasharray: 1; stroke-dashoffset: 1; } to { stroke-dasharray: 1; stroke-dashoffset: 0; } }
+.calme-wave { animation: calme-wave-in 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) 0.2s both; }
+.group\/logo:hover .calme-wave { animation: calme-wave-in 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@media (prefers-reduced-motion: reduce) { .calme-wave { animation: none !important; } }

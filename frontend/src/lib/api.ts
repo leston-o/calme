@@ -2,7 +2,10 @@
 // Vite dev proxy (or a reverse proxy in production) forwards them.
 import type { SessionToken } from "@fishaudio/agent-client";
 
-export const API_PREFIX = "/api/v1";
+// Same origin by default (the Vite proxy in dev). On a static host such as Vercel,
+// set VITE_API_URL to the backend's address, e.g. https://calme-api.onrender.com.
+const API_URL = ((import.meta.env.VITE_API_URL as string | undefined) ?? "").replace(/\/+$/, "");
+export const API_PREFIX = `${API_URL}/api/v1`;
 
 /** Fish Audio Live 3's own voices. Clara is the default. */
 export const VOICES = ["Clara", "Nora", "Harper", "Patricia", "Owen", "Marco", "Milo", "Jonah"] as const;
@@ -26,6 +29,45 @@ export type AgentInput = Pick<
 >;
 
 export type RefineField = "business_description" | "hours" | "services" | "other" | "greeting";
+
+export interface DemoRequest {
+  name: string;
+  email: string;
+  business: string;
+  phone?: string;
+  preferred_time?: string;
+  message?: string;
+  website?: string; // honeypot: always empty from real people
+}
+
+export interface DemoSlot {
+  start: string; // ISO, UTC
+  end: string;
+  status: "free" | "booked" | "past";
+}
+
+export interface DemoAvailability {
+  timezone: string; // the host's, e.g. Africa/Nairobi
+  slot_minutes: number;
+  days: { date: string; slots: DemoSlot[] }[];
+}
+
+export interface DemoBookingIn {
+  start: string;
+  name: string;
+  email: string;
+  business: string;
+  phone?: string;
+  message?: string;
+  website?: string; // honeypot
+}
+
+export interface DemoBooking {
+  id: string;
+  start: string;
+  end: string;
+  when: string; // in the host's timezone
+}
 
 export interface ReadyStatus {
   status: string;
@@ -76,7 +118,8 @@ async function errorFrom(res: Response): Promise<ApiError> {
 }
 
 async function request(path: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(API_PREFIX + path, init);
+  // give up on a backend that accepts the connection but never answers
+  const res = await fetch(API_PREFIX + path, { signal: AbortSignal.timeout(20_000), ...init });
   if (!res.ok) throw await errorFrom(res);
   return res;
 }
@@ -114,6 +157,12 @@ export const api = {
 
   /** Live voice test, hosted by Fish Audio. Hand the result to AgentSession.start(). */
   startSession: (id: string) => json<SessionToken>(`/agents/${id}/session`, send("POST")),
+
+  // public, for the landing page
+  bookDemo: (body: DemoRequest) => json<{ ok: boolean }>("/demo/requests", send("POST", body)),
+  demoAvailability: () => json<DemoAvailability>("/demo/availability"),
+  bookDemoSlot: (body: DemoBookingIn) => json<DemoBooking>("/demo/bookings", send("POST", body)),
+  demoSession: () => json<SessionToken>("/demo/session", send("POST")),
 };
 
 export function timeAgo(iso: string): string {

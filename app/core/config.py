@@ -30,6 +30,27 @@ class Settings(BaseSettings):
     fish_agent_llm_custom_model: str = ""
     fish_agent_llm_api_key: str = ""
 
+    # EMAIL (demo requests). For Gmail use smtp.gmail.com and an app password.
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    demo_inbox: str = ""  # where demo requests go; defaults to smtp_username
+
+    # PUBLIC DEMO: the CalMe agent visitors can talk to on the landing page
+    demo_agent_id: str = ""
+    demo_sessions_per_ip_per_hour: int = 3
+    demo_sessions_per_hour: int = 60
+
+    # DEMO CALENDAR: when visitors can book a demo with you
+    demo_timezone: str = "Africa/Nairobi"
+    demo_weekdays: str = "mon,tue,wed,thu,fri"
+    demo_day_start: str = "09:00"
+    demo_day_end: str = "17:00"
+    demo_slot_minutes: int = 120
+    demo_days_ahead: int = 14
+    demo_min_notice_hours: int = 2
+
     # POSTGRESS
     database_url: str = ""
 

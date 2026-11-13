@@ -333,6 +333,11 @@ const STATUS_TEXT: Record<CallStatus, string> = {
   speaking: "Amani is speaking",
 };
 
+// Each demo call is short: it costs Fish minutes, and it's a taste, not the product.
+const DEMO_SECONDS = 180;
+
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
 /** The landing page's live demo: a real conversation with the Amani agent. */
 function TryAmani() {
   const book = useBookDemo();
@@ -348,6 +353,37 @@ function TryAmani() {
   const shown = call.lines.filter((l) => l.kind === "you" || l.kind === "agent").slice(-3);
   const problem = [...call.lines].reverse().find((l) => l.kind === "error");
 
+  // a call counts as a demo once Amani actually picked up
+  const connected = call.active && call.status !== "connecting";
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [left, setLeft] = useState(DEMO_SECONDS);
+  const [finished, setFinished] = useState(false);
+
+  useEffect(() => {
+    if (connected && startedAt === null) setStartedAt(Date.now());
+    if (!call.active && startedAt !== null) {
+      setFinished(true); // however it ended: time up, hang up, or Amani ended it
+      setStartedAt(null);
+    }
+  }, [connected, call.active, startedAt]);
+
+  useEffect(() => {
+    if (startedAt === null) return setLeft(DEMO_SECONDS);
+    const tick = () => {
+      const remaining = Math.max(0, DEMO_SECONDS - Math.floor((Date.now() - startedAt) / 1000));
+      setLeft(remaining);
+      if (remaining === 0) call.hangUp();
+    };
+    tick();
+    const id = window.setInterval(tick, 500);
+    return () => window.clearInterval(id);
+  }, [startedAt, call.hangUp]);
+
+  const tryAgain = () => {
+    setFinished(false);
+    void call.start();
+  };
+
   return (
     <div id="try" className="relative scroll-mt-24">
       <div className="relative overflow-hidden rounded-[2rem] border border-white/80 bg-white/60 p-6 pt-8 shadow-2xl shadow-slate-900/10 backdrop-blur-xl sm:p-8">
@@ -356,11 +392,43 @@ function TryAmani() {
         <div className="mt-2 text-center">
           <div className="font-display text-3xl">Amani</div>
           <div className="text-sm text-slate-500">CalMe's demo call agent</div>
-          <div key={call.status} className="swap-in mt-3 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-            <span className={cx("size-1.5 rounded-full", call.active ? "bg-emerald-500" : "bg-slate-300")} />
-            {STATUS_TEXT[call.status]}
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <div key={finished ? "done" : call.status} className="swap-in inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+              <span className={cx("size-1.5 rounded-full", call.active ? "bg-emerald-500" : finished ? "bg-sky-500" : "bg-slate-300")} />
+              {finished && !call.active ? "Demo finished" : STATUS_TEXT[call.status]}
+            </div>
+            {startedAt !== null && (
+              <span
+                className={cx(
+                  "swap-in tabular inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ring-1",
+                  left <= 30 ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-white text-slate-500 ring-slate-200",
+                )}
+              >
+                {clock(left)} left
+              </span>
+            )}
           </div>
         </div>
+
+        {finished && !call.active ? (
+          <div className="swap-in mt-5 rounded-[1.5rem] bg-slate-950 p-6 text-center text-white">
+            <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-white/10">
+              <Sparkles className="size-5 text-sky-300" />
+            </span>
+            <h3 className="mt-4 font-display text-3xl leading-tight">That's the end of your demo.</h3>
+            <p className="mx-auto mt-2 max-w-xs text-sm text-slate-300">
+              Thanks for talking to Amani. Book a demo with us for the full experience: a call agent set up for your
+              business, with its own voice and phone number.
+            </p>
+            <div className="mt-5 flex justify-center">
+              <PrimaryCta light>Book a demo</PrimaryCta>
+            </div>
+            <button onClick={tryAgain} className="mt-4 text-xs font-medium text-slate-400 underline-offset-2 hover:text-white hover:underline">
+              Talk to Amani again
+            </button>
+          </div>
+        ) : (
+          <>
 
         {/* the conversation so far */}
         <div className="mt-5 flex min-h-[6.5rem] flex-col justify-end gap-2">
@@ -409,8 +477,10 @@ function TryAmani() {
               Talk to Amani
             </button>
           )}
-          <p className="text-xs text-slate-400">Uses your microphone · Headphones help · Short demo calls</p>
+          <p className="text-xs text-slate-400">Uses your microphone · Headphones help · {DEMO_SECONDS / 60}-minute demo</p>
         </div>
+          </>
+        )}
       </div>
     </div>
   );

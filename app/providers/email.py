@@ -18,7 +18,14 @@ class SmtpEmail:
         self._username = username
         self._password = password
 
-    async def send(self, to: str, subject: str, body: str, reply_to: str | None = None) -> None:
+    async def send(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        reply_to: str | None = None,
+        attachments: list[tuple[str, str, bytes]] | None = None,  # (filename, mime type, data)
+    ) -> None:
         msg = EmailMessage()
         msg["From"] = self._username
         msg["To"] = to
@@ -26,6 +33,9 @@ class SmtpEmail:
         if reply_to:
             msg["Reply-To"] = reply_to
         msg.set_content(body)
+        for filename, mime, data in attachments or []:
+            maintype, subtype = mime.split("/", 1)
+            msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=filename)
         try:
             await asyncio.to_thread(self._send, msg)
         except (smtplib.SMTPException, OSError) as exc:

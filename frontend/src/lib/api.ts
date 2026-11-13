@@ -40,6 +40,35 @@ export interface DemoRequest {
   website?: string; // honeypot: always empty from real people
 }
 
+export interface DemoSlot {
+  start: string; // ISO, UTC
+  end: string;
+  status: "free" | "booked" | "past";
+}
+
+export interface DemoAvailability {
+  timezone: string; // the host's, e.g. Africa/Nairobi
+  slot_minutes: number;
+  days: { date: string; slots: DemoSlot[] }[];
+}
+
+export interface DemoBookingIn {
+  start: string;
+  name: string;
+  email: string;
+  business: string;
+  phone?: string;
+  message?: string;
+  website?: string; // honeypot
+}
+
+export interface DemoBooking {
+  id: string;
+  start: string;
+  end: string;
+  when: string; // in the host's timezone
+}
+
 export interface ReadyStatus {
   status: string;
   database: string;
@@ -131,6 +160,8 @@ export const api = {
 
   // public, for the landing page
   bookDemo: (body: DemoRequest) => json<{ ok: boolean }>("/demo/requests", send("POST", body)),
+  demoAvailability: () => json<DemoAvailability>("/demo/availability"),
+  bookDemoSlot: (body: DemoBookingIn) => json<DemoBooking>("/demo/bookings", send("POST", body)),
   demoSession: () => json<SessionToken>("/demo/session", send("POST")),
 };
 

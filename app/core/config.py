@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     demo_sessions_per_ip_per_hour: int = 3
     demo_sessions_per_hour: int = 60
 
+    # DEMO CALENDAR: when visitors can book a demo with you
+    demo_timezone: str = "Africa/Nairobi"
+    demo_weekdays: str = "mon,tue,wed,thu,fri"
+    demo_day_start: str = "09:00"
+    demo_day_end: str = "17:00"
+    demo_slot_minutes: int = 120
+    demo_days_ahead: int = 14
+    demo_min_notice_hours: int = 2
+
     # POSTGRESS
     database_url: str = ""
 

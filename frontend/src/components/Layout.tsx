@@ -1,5 +1,4 @@
 import {
-  AudioLines,
   BookOpen,
   Settings2,
   Bot,
@@ -14,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, matchPath, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { api, type Agent } from "../lib/api";
 import { useAdvancedMode, useAsync } from "../lib/hooks";
+import CalmeLogo from "./CalmeLogo";
 import { Avatar, Button, cx } from "./ui";
 
 type NavItem = { to: string; label: string; icon: typeof Bot; end?: boolean };
@@ -103,11 +103,8 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [advanced, setAdvanced] = useAdvancedMode();
   return (
     <div className="flex h-full flex-col">
-      <Link to="/" className="flex h-16 items-center gap-2 px-6">
-        <span className="flex size-8 items-center justify-center rounded-full bg-slate-950 text-white">
-          <AudioLines className="size-4" />
-        </span>
-        <span className="font-display text-2xl leading-none text-slate-950">CalMe</span>
+      <Link to="/" className="flex h-16 items-center px-6" aria-label="CalMe home">
+        <CalmeLogo />
       </Link>
       <nav className="flex-1 space-y-7 px-4 pt-6">
         <NavGroup items={mainNav} onNavigate={onNavigate} />

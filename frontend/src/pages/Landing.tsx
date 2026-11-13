@@ -1,6 +1,5 @@
 import {
   ArrowRight,
-  AudioLines,
   CalendarCheck,
   Mail,
   MessageCircle,
@@ -20,6 +19,7 @@ import {
 } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import CalmeLogo from "../components/CalmeLogo";
 import AmaniRobot from "../components/landing/AmaniRobot";
 import BookDemo from "../components/landing/BookDemo";
 import { CountUp, Reveal, useInView } from "../components/landing/motion";
@@ -201,16 +201,8 @@ const photoUrl = (id: string, width: number) =>
 
 function Logo({ dark }: { dark?: boolean }) {
   return (
-    <Link to="/" className="flex items-center gap-2">
-      <span
-        className={cx(
-          "flex size-8 items-center justify-center rounded-full",
-          dark ? "bg-white text-slate-950" : "bg-slate-950 text-white",
-        )}
-      >
-        <AudioLines className="size-4" />
-      </span>
-      <span className={cx("font-display text-2xl leading-none", dark ? "text-white" : "text-slate-950")}>CalMe</span>
+    <Link to="/" aria-label="CalMe home">
+      <CalmeLogo dark={dark} />
     </Link>
   );
 }

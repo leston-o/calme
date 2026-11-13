@@ -28,6 +28,7 @@ import VoiceOrb from "../components/VoiceOrb";
 import Waveform from "../components/Waveform";
 import { api, ApiError } from "../lib/api";
 import { useReducedMotion } from "../lib/hooks";
+import { useRingback } from "../lib/ringback";
 import { useLiveCall, type CallStatus } from "../lib/useLiveCall";
 
 // The dashboard is closed to the public for now, so every call to action books a demo.
@@ -68,7 +69,7 @@ const BUSINESSES: Business[] = [
   },
   {
     key: "optician",
-    word: "opticians",
+    word: "optical shop",
     kind: "Opticians",
     name: "ClearView Opticians",
     city: "Toronto",
@@ -350,6 +351,12 @@ function TryAmani() {
     }
   }, []);
   const call = useLiveCall(startDemo);
+  // the phone rings while Amani is waking up, and stops as soon as the call connects
+  const ringback = useRingback(call.status === "connecting");
+  const startCall = () => {
+    ringback.prime();
+    void call.start();
+  };
   const shown = call.lines.filter((l) => l.kind === "you" || l.kind === "agent").slice(-3);
   const problem = [...call.lines].reverse().find((l) => l.kind === "error");
 
@@ -381,7 +388,7 @@ function TryAmani() {
 
   const tryAgain = () => {
     setFinished(false);
-    void call.start();
+    startCall();
   };
 
   return (
@@ -429,56 +436,55 @@ function TryAmani() {
           </div>
         ) : (
           <>
-
-        {/* the conversation so far */}
-        <div className="mt-5 flex min-h-[6.5rem] flex-col justify-end gap-2">
-          {shown.length === 0 && !problem && (
-            <p className="text-center text-sm text-slate-500">
-              Ask Amani anything a customer might: opening hours, prices, or to take a message.
-            </p>
-          )}
-          {shown.map((l, i) => (
-            <div key={`${call.lines.length}-${i}`} className={cx("bubble-in flex", l.kind === "you" && "justify-end")}>
-              <p
-                className={cx(
-                  "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm",
-                  l.kind === "you" ? "rounded-br-md bg-slate-950 text-white" : "rounded-bl-md bg-sky-50 text-slate-800 ring-1 ring-sky-100",
-                )}
-              >
-                {l.text}
-              </p>
+            {/* the conversation so far */}
+            <div className="mt-5 flex min-h-[6.5rem] flex-col justify-end gap-2">
+              {shown.length === 0 && !problem && (
+                <p className="text-center text-sm text-slate-500">
+                  Ask Amani anything a customer might: opening hours, prices, or to take a message.
+                </p>
+              )}
+              {shown.map((l, i) => (
+                <div key={`${call.lines.length}-${i}`} className={cx("bubble-in flex", l.kind === "you" && "justify-end")}>
+                  <p
+                    className={cx(
+                      "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm",
+                      l.kind === "you" ? "rounded-br-md bg-slate-950 text-white" : "rounded-bl-md bg-sky-50 text-slate-800 ring-1 ring-sky-100",
+                    )}
+                  >
+                    {l.text}
+                  </p>
+                </div>
+              ))}
+              {problem && !call.active && (
+                <div className="swap-in rounded-2xl bg-amber-50 px-4 py-3 text-center text-sm text-amber-800 ring-1 ring-amber-200">
+                  {problem.text}{" "}
+                  <button onClick={book} className="font-medium underline underline-offset-2">
+                    Book a demo
+                  </button>
+                </div>
+              )}
             </div>
-          ))}
-          {problem && !call.active && (
-            <div className="swap-in rounded-2xl bg-amber-50 px-4 py-3 text-center text-sm text-amber-800 ring-1 ring-amber-200">
-              {problem.text}{" "}
-              <button onClick={book} className="font-medium underline underline-offset-2">
-                Book a demo
-              </button>
-            </div>
-          )}
-        </div>
 
-        <div className="mt-5 flex flex-col items-center gap-2">
-          {call.active ? (
-            <button
-              onClick={call.hangUp}
-              className="inline-flex h-12 items-center gap-2 rounded-full bg-red-600 px-6 text-[0.9375rem] font-medium text-white shadow-lg shadow-red-600/20 transition hover:bg-red-700 active:scale-[0.98]"
-            >
-              <PhoneOff className="size-4" />
-              End conversation
-            </button>
-          ) : (
-            <button
-              onClick={call.start}
-              className="group inline-flex h-12 items-center gap-2 rounded-full bg-slate-950 px-6 text-[0.9375rem] font-medium text-white shadow-lg shadow-slate-900/15 transition hover:bg-slate-800 active:scale-[0.98]"
-            >
-              <Mic className="size-4 transition group-hover:scale-110" />
-              Talk to Amani
-            </button>
-          )}
-          <p className="text-xs text-slate-400">Uses your microphone · Headphones help · {DEMO_SECONDS / 60}-minute demo</p>
-        </div>
+            <div className="mt-5 flex flex-col items-center gap-2">
+              {call.active ? (
+                <button
+                  onClick={call.hangUp}
+                  className="inline-flex h-12 items-center gap-2 rounded-full bg-red-600 px-6 text-[0.9375rem] font-medium text-white shadow-lg shadow-red-600/20 transition hover:bg-red-700 active:scale-[0.98]"
+                >
+                  <PhoneOff className="size-4" />
+                  End conversation
+                </button>
+              ) : (
+                <button
+                  onClick={startCall}
+                  className="group inline-flex h-12 items-center gap-2 rounded-full bg-slate-950 px-6 text-[0.9375rem] font-medium text-white shadow-lg shadow-slate-900/15 transition hover:bg-slate-800 active:scale-[0.98]"
+                >
+                  <Mic className="size-4 transition group-hover:scale-110" />
+                  Talk to Amani
+                </button>
+              )}
+              <p className="text-xs text-slate-400">Uses your microphone · Headphones help · {DEMO_SECONDS / 60}-minute demo</p>
+            </div>
           </>
         )}
       </div>

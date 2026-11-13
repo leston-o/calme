@@ -26,7 +26,7 @@ import { CountUp, Reveal, useInView } from "../components/landing/motion";
 import { cx } from "../components/ui";
 import VoiceOrb from "../components/VoiceOrb";
 import Waveform from "../components/Waveform";
-import { api, ApiError } from "../lib/api";
+import { api } from "../lib/api";
 import { useReducedMotion } from "../lib/hooks";
 import { useRingback } from "../lib/ringback";
 import { useLiveCall, type CallStatus } from "../lib/useLiveCall";

@@ -8,4 +8,5 @@ sqlalchemy[asyncio]>=2.0
 asyncpg>=0.29
 alembic>=1.13
 numpy>=1.26
-webrtcvad-wheels>=2.0.14twilio
+webrtcvad-wheels>=2.0.14
+twilio

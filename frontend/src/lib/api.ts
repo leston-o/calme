@@ -162,7 +162,17 @@ export const api = {
   bookDemo: (body: DemoRequest) => json<{ ok: boolean }>("/demo/requests", send("POST", body)),
   demoAvailability: () => json<DemoAvailability>("/demo/availability"),
   bookDemoSlot: (body: DemoBookingIn) => json<DemoBooking>("/demo/bookings", send("POST", body)),
-  demoSession: () => json<SessionToken>("/demo/session", send("POST")),
+  /** Talk to the demo agent, in its own voice or a visitor's temporary cloned one. */
+  demoSession: (voiceRef?: string) =>
+    json<SessionToken>("/demo/session", send("POST", voiceRef ? { voice_ref: voiceRef } : {})),
+  demoClonePassage: () => json<{ passage: string; minutes: number }>("/demo/voice/passage"),
+  demoCloneVoice: (audio: Blob, consent: boolean) => {
+    const form = new FormData();
+    form.append("audio", audio, "voice.wav");
+    form.append("consent", String(consent));
+    return json<{ voice_ref: string; expires_at: string }>("/demo/voice", { method: "POST", body: form });
+  },
+  demoDeleteVoice: (voiceRef: string) => json<void>(`/demo/voice/${encodeURIComponent(voiceRef)}`, send("DELETE")),
 };
 
 export function timeAgo(iso: string): string {

@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     demo_agent_id: str = ""
     demo_sessions_per_ip_per_hour: int = 3
     demo_sessions_per_hour: int = 60
+    # visitors can try the demo in their own cloned voice
+    demo_voice_clone_enabled: bool = True
+    demo_voice_minutes: int = 30  # cloned voices are deleted after this
+    demo_clones_per_ip_per_day: int = 2
+    demo_clones_per_day: int = 50
 
     # DEMO CALENDAR: when visitors can book a demo with you
     demo_timezone: str = "Africa/Nairobi"

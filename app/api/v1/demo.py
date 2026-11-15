@@ -8,17 +8,18 @@ from html import escape
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Request, status
+from fastapi import APIRouter, File, Form, Query, Request, UploadFile, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from app.api.deps import AgentServiceDep
 from app.api.v1.agents import SessionOut
-from app.core.errors import AppError, ConflictError, NotConfiguredError
+from app.core.errors import AppError, ConflictError, NotConfiguredError, NotFoundError
 from app.core.rate_limit import client_ip
 from app.repositories.demo_bookings import DemoBooking
 from app.services.calendar_invite import calendar_invite
 from app.services.demo_schedule import DemoSchedule
+from app.services.demo_voices import CLONE_PASSAGE
 
 logger = logging.getLogger("calme.demo")
 
@@ -83,8 +84,14 @@ async def book_demo(body: DemoRequest, request: Request) -> DemoRequestOut:
     return DemoRequestOut()
 
 
+class DemoSessionIn(BaseModel):
+    voice_ref: str | None = Field(default=None, max_length=64)  # talk in the visitor's cloned voice
+
+
 @router.post("/session", response_model=SessionOut)
-async def talk_to_demo_agent(request: Request, service: AgentServiceDep) -> SessionOut:
+async def talk_to_demo_agent(
+    request: Request, service: AgentServiceDep, body: DemoSessionIn | None = None
+) -> SessionOut:
     """Start a live voice session with the landing page's demo agent."""
     state = request.app.state
     settings = state.settings
@@ -98,8 +105,91 @@ async def talk_to_demo_agent(request: Request, service: AgentServiceDep) -> Sess
     state.demo_session_global_limit.check(
         "all", "Lots of people are trying the demo right now. Please try again in a little while."
     )
-    session = await service.start_session(UUID(settings.demo_agent_id))
+    if body and body.voice_ref:
+        voice = _demo_voices(request).get(body.voice_ref)
+        session = await state.fish_agents.create_session(voice.fish_agent_id)
+    else:
+        session = await service.start_session(UUID(settings.demo_agent_id))
     return SessionOut.model_validate(session)
+
+
+# ---------- the demo in the visitor's own voice ----------
+
+MAX_CLONE_BYTES = 5 * 1024 * 1024
+MIN_CLONE_SECONDS = 8
+
+
+class CloneOut(BaseModel):
+    voice_ref: str
+    expires_at: datetime
+
+
+class ClonePassageOut(BaseModel):
+    passage: str
+    minutes: int
+
+
+def _demo_voices(request: Request):
+    voices = getattr(request.app.state, "demo_voices", None)
+    if voices is None or not request.app.state.settings.demo_agent_id:
+        raise NotConfiguredError("Trying the demo in your own voice isn't available right now.")
+    return voices
+
+
+def _wav_seconds(data: bytes) -> float:
+    """Length of a PCM WAV recording, or 0 if it isn't one."""
+    if len(data) < 44 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+        return 0.0
+    byte_rate = int.from_bytes(data[28:32], "little")
+    return (len(data) - 44) / byte_rate if byte_rate else 0.0
+
+
+@router.get("/voice/passage", response_model=ClonePassageOut)
+async def clone_passage(request: Request) -> ClonePassageOut:
+    """What visitors read aloud, and how long their cloned voice is kept."""
+    return ClonePassageOut(passage=CLONE_PASSAGE, minutes=request.app.state.settings.demo_voice_minutes)
+
+
+@router.post("/voice", response_model=CloneOut, status_code=status.HTTP_201_CREATED)
+async def clone_visitor_voice(
+    request: Request,
+    service: AgentServiceDep,
+    audio: UploadFile = File(...),
+    consent: bool = Form(...),
+    website: str | None = Form(default=None),  # honeypot
+) -> CloneOut:
+    """Clone the visitor's voice for a short, temporary demo."""
+    voices = _demo_voices(request)
+    state = request.app.state
+    if not consent:
+        raise AppError("Please confirm this is your own voice and that you agree to the temporary copy.")
+    if website:
+        raise AppError("Something went wrong. Please try again.")
+
+    data = await audio.read(MAX_CLONE_BYTES + 1)
+    if len(data) > MAX_CLONE_BYTES:
+        raise AppError("That recording is too long. Please keep it under 30 seconds.")
+    seconds = _wav_seconds(data)
+    if seconds < MIN_CLONE_SECONDS:
+        raise AppError(f"Please record at least {MIN_CLONE_SECONDS} seconds of your voice.")
+
+    state.demo_clone_ip_limit.check(client_ip(request), "You've already tried a voice today. Book a demo to hear more.")
+    state.demo_clone_global_limit.check("all", "Lots of people are trying this right now. Please try again later.")
+
+    demo_agent = await service.get(UUID(state.settings.demo_agent_id))
+    voice = await voices.create(demo_agent, data, "voice.wav")
+    return CloneOut(voice_ref=voice.ref, expires_at=datetime.fromtimestamp(voice.expires_at, timezone.utc))
+
+
+@router.delete("/voice/{voice_ref}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_visitor_voice(voice_ref: str, request: Request) -> None:
+    """Delete the visitor's cloned voice now, instead of waiting for it to expire."""
+    voices = _demo_voices(request)
+    try:
+        voices.get(voice_ref)
+    except NotFoundError:
+        return
+    await voices.delete(voice_ref)
 
 
 # ---------- booking a demo slot, Calendly-style ----------

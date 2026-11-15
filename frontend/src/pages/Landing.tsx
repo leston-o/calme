@@ -21,6 +21,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { Link } from "react-router-dom";
 import CalmeLogo from "../components/CalmeLogo";
 import AmaniRobot from "../components/landing/AmaniRobot";
+import VoiceClone from "../components/landing/VoiceClone";
 import BookDemo from "../components/landing/BookDemo";
 import { CountUp, Reveal, useInView } from "../components/landing/motion";
 import { cx } from "../components/ui";
@@ -195,6 +196,9 @@ const BUSINESSES: Business[] = [
   },
 ];
 
+// CalMe blue: the page's accent colour (sections may set their own).
+const BRAND_HUE = 217;
+
 const photoUrl = (id: string, width: number) =>
   `https://images.unsplash.com/photo-${id}?w=${width}&q=70&auto=format&fit=crop`;
 
@@ -342,13 +346,22 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2,
 /** The landing page's live demo: a real conversation with the Amani agent. */
 function TryAmani() {
   const book = useBookDemo();
+  // talk to Amani in its own voice, or in a temporary clone of the visitor's
+  const [voiceMode, setVoiceMode] = useState<"amani" | "mine">("amani");
+  const [myVoice, setMyVoice] = useState<{ ref: string; expiresAt: string } | null>(null);
+  const voiceRef = voiceMode === "mine" ? myVoice?.ref : undefined;
+
   const startDemo = useCallback(async () => {
     try {
-      return await api.demoSession();
+      return await api.demoSession(voiceRef);
     } catch (err: any) {
       // Check the code property directly instead of instanceof
       if (err?.code === "rate_limited") {
         throw new Error(err.message);
+      }
+      if (voiceRef && err?.status === 404) {
+        setMyVoice(null); // it expired: show the recorder again
+        throw new Error("Your voice copy has expired. Record it again to keep going.");
       }
     
        // Optional: log the real error to the console so you can see what's actually failing
@@ -356,7 +369,7 @@ function TryAmani() {
     
        throw new Error("Amani is taking a short break. Book a demo and we'll introduce you properly.");
     }
-  }, []);
+  }, [voiceRef]);
   const call = useLiveCall(startDemo);
   // the phone rings while Amani is waking up, and stops as soon as the call connects
   const ringback = useRingback(call.status === "connecting");
@@ -398,14 +411,49 @@ function TryAmani() {
     startCall();
   };
 
+  const deleteMyVoice = () => {
+    if (myVoice) void api.demoDeleteVoice(myVoice.ref).catch(() => {});
+    setMyVoice(null);
+  };
+  const minutesLeft = myVoice ? Math.max(1, Math.round((new Date(myVoice.expiresAt).getTime() - Date.now()) / 60000)) : 0;
+  const recordingVoice = voiceMode === "mine" && !myVoice && !call.active;
+
   return (
     <div id="try" className="relative scroll-mt-24">
       <div className="relative overflow-hidden rounded-[2rem] border border-white/80 bg-white/60 p-6 pt-8 shadow-2xl shadow-slate-900/10 backdrop-blur-xl sm:p-8">
-        <AmaniRobot status={call.status} level={call.level} />
+        <AmaniRobot status={call.status} level={call.level} hue={voiceMode === "mine" ? 265 : 199} />
 
         <div className="mt-2 text-center">
           <div className="font-display text-3xl">Amani</div>
-          <div className="text-sm text-slate-500">CalMe's demo call agent</div>
+          <div className="text-sm text-slate-500">
+            CalMe's demo call agent{voiceMode === "mine" && myVoice ? ", speaking in your voice" : ""}
+          </div>
+          {!call.active && (
+            <div className="mt-4 inline-flex rounded-full bg-slate-100 p-1" role="radiogroup" aria-label="Voice for the demo">
+              {(
+                [
+                  ["amani", "Amani's voice"],
+                  ["mine", "Your voice"],
+                ] as const
+              ).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  role="radio"
+                  aria-checked={voiceMode === mode}
+                  onClick={() => {
+                    setVoiceMode(mode);
+                    setFinished(false);
+                  }}
+                  className={cx(
+                    "rounded-full px-4 py-1.5 text-sm font-medium transition-all duration-300",
+                    voiceMode === mode ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-800",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
             <div key={finished ? "done" : call.status} className="swap-in inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
               <span className={cx("size-1.5 rounded-full", call.active ? "bg-emerald-500" : finished ? "bg-sky-500" : "bg-slate-300")} />
@@ -424,7 +472,14 @@ function TryAmani() {
           </div>
         </div>
 
-        {finished && !call.active ? (
+        {recordingVoice ? (
+          <VoiceClone
+            onReady={(ref, expiresAt) => {
+              setMyVoice({ ref, expiresAt });
+              setFinished(false);
+            }}
+          />
+        ) : finished && !call.active ? (
           <div className="swap-in mt-5 rounded-[1.5rem] bg-slate-950 p-6 text-center text-white">
             <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-white/10">
               <Sparkles className="size-5 text-sky-300" />
@@ -487,8 +542,16 @@ function TryAmani() {
                   className="group inline-flex h-12 items-center gap-2 rounded-full bg-slate-950 px-6 text-[0.9375rem] font-medium text-white shadow-lg shadow-slate-900/15 transition hover:bg-slate-800 active:scale-[0.98]"
                 >
                   <Mic className="size-4 transition group-hover:scale-110" />
-                  Talk to Amani
+                  {voiceRef ? "Talk to Amani in your voice" : "Talk to Amani"}
                 </button>
+              )}
+              {voiceRef && !call.active && (
+                <p className="text-xs text-violet-600">
+                  Your voice copy is deleted in about {minutesLeft} min ·{" "}
+                  <button onClick={deleteMyVoice} className="font-medium underline underline-offset-2">
+                    Delete now
+                  </button>
+                </p>
               )}
               <p className="text-xs text-slate-400">Uses your microphone · Headphones help · {DEMO_SECONDS / 60}-minute demo</p>
             </div>
@@ -503,7 +566,7 @@ function Hero({ index }: { index: number }) {
   const biz = BUSINESSES[index];
   return (
     <section className="relative isolate overflow-hidden">
-      {/* the hero takes on the colour of the business named in the headline */}
+      {/* a soft wash of CalMe blue behind the hero */}
       <div
         className="absolute inset-0 -z-10"
         style={{
@@ -1305,7 +1368,6 @@ export default function Landing() {
   const [index, setIndex] = useState(0);
   const [booking, setBooking] = useState(false);
   const reduced = useReducedMotion();
-  const biz = BUSINESSES[index];
 
   // the headline names a different kind of business every few seconds
   useEffect(() => {
@@ -1321,7 +1383,7 @@ export default function Landing() {
       <div
         id="landing-scroll"
         className="h-full overflow-y-auto overflow-x-hidden scroll-smooth bg-white text-slate-950"
-        style={{ "--hue": biz.hue, transition: "--hue 900ms ease" } as CSSProperties}
+        style={{ "--hue": BRAND_HUE } as CSSProperties}
       >
         <Nav />
         <main>

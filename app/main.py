@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -14,12 +16,13 @@ from app.core.rate_limit import RateLimiter
 from app.db.session import create_engine, create_session_factory
 from app.providers.fish_agent import FishAgentClient, FishAgents, FishAgentTelephony
 from app.providers.email import SmtpEmail
-from app.providers.fish_audio import FishAudioSTT, FishAudioTTS
+from app.providers.fish_audio import FishAudioSTT, FishAudioTTS, FishVoiceCloner
 from app.providers.ollama import OllamaLLM
 from app.repositories.in_memory import InMemoryAgentRepository
 from app.repositories.demo_bookings import InMemoryDemoBookingRepository, PostgresDemoBookingRepository
 from app.repositories.postgres import PostgresAgentRepository
 from app.providers.twilio_telephony import TwilioTelephony
+from app.services.demo_voices import DemoVoices
 
 
 logger = logging.getLogger("calme")
@@ -90,8 +93,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.demo_session_ip_limit = RateLimiter(settings.demo_sessions_per_ip_per_hour, 3600)
         app.state.demo_session_global_limit = RateLimiter(settings.demo_sessions_per_hour, 3600)
 
+        # DEMO IN YOUR OWN VOICE: temporary cloned voices, swept away when they expire
+        sweeper = None
+        if settings.demo_voice_clone_enabled and app.state.fish_agents is not None:
+            app.state.voice_cloner = FishVoiceCloner(settings.fish_api_key)
+            app.state.demo_voices = DemoVoices(app.state.voice_cloner, app.state.fish_agents, settings)
+            app.state.demo_clone_ip_limit = RateLimiter(settings.demo_clones_per_ip_per_day, 86400)
+            app.state.demo_clone_global_limit = RateLimiter(settings.demo_clones_per_day, 86400)
+
+            async def sweep_forever() -> None:
+                while True:
+                    await asyncio.sleep(60)
+                    try:
+                        await app.state.demo_voices.sweep()
+                    except Exception:
+                        logger.exception("Sweeping demo voices failed")
+
+            sweeper = asyncio.create_task(sweep_forever())
+        else:
+            app.state.voice_cloner = None
+            app.state.demo_voices = None
+
         logger.info("%s started (%s)", settings.app_name, settings.environment)
         yield
+
+        if sweeper is not None:
+            sweeper.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await sweeper
+            await app.state.demo_voices.delete_all()  # don't leave visitors' voices behind
+            await app.state.voice_cloner.aclose()
 
         await app.state.llm.aclose()
         if app.state.fish_agent_client is not None:

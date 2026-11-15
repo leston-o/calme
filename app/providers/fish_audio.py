@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from fishaudio import AsyncFishAudio
@@ -58,3 +59,52 @@ class FishAudioSTT(STTProvider):
             logger.exception("Fish Audio ASR request failed")
             raise ProviderError(f"Fish Audio transcription failed: {exc}") from exc
         return (result.text or "").strip()
+
+
+class FishVoiceCloner:
+    """Creates and deletes private cloned voices (Fish Audio "models")."""
+
+    def __init__(self, api_key: str) -> None:
+        self._client = httpx.AsyncClient(
+            base_url="https://api.fish.audio",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=httpx.Timeout(60.0, connect=10.0),
+        )
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    async def create(self, title: str, audio: bytes, filename: str, transcript: str | None = None) -> str:
+        """Clone a voice from one recording. Returns its id once it's usable."""
+        data = {"type": "tts", "title": title, "train_mode": "fast", "visibility": "private"}
+        if transcript:
+            data["texts"] = transcript
+        try:
+            resp = await self._client.post("/model", data=data, files={"voices": (filename, audio)})
+        except httpx.HTTPError as exc:
+            logger.exception("Fish Audio voice clone request failed")
+            raise ProviderError("We couldn't create your voice just now. Please try again.") from exc
+        if resp.status_code >= 400:
+            logger.warning("Fish Audio voice clone failed %s: %s", resp.status_code, resp.text[:300])
+            raise ProviderError("We couldn't create your voice from that recording. Please try again.")
+        model = resp.json()
+        voice_id = model["_id"]
+        state = model.get("state")
+        # fast clones are usually ready at once; wait briefly if not
+        for _ in range(10):
+            if state == "trained":
+                return voice_id
+            if state == "failed":
+                break
+            await asyncio.sleep(1.5)
+            state = (await self._client.get(f"/model/{voice_id}")).json().get("state")
+        await self.delete(voice_id)
+        raise ProviderError("We couldn't create your voice from that recording. Please try again.")
+
+    async def delete(self, voice_id: str) -> None:
+        try:
+            resp = await self._client.delete(f"/model/{voice_id}")
+            if resp.status_code >= 400 and resp.status_code != 404:
+                logger.warning("Deleting cloned voice %s failed: %s", voice_id, resp.status_code)
+        except httpx.HTTPError:
+            logger.exception("Deleting cloned voice %s failed", voice_id)

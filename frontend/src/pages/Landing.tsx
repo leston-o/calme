@@ -1,6 +1,7 @@
 import {
   ArrowRight,
   CalendarCheck,
+  Check,
   Mail,
   MessageCircle,
   MessageSquareText,
@@ -36,11 +37,11 @@ import { useLiveCall, type CallStatus } from "../lib/useLiveCall";
 const BookDemoContext = createContext<() => void>(() => {});
 const useBookDemo = () => useContext(BookDemoContext);
 
-// ---------- the businesses the page is built around ----------
+// ---------- the appointment businesses the page is built around ----------
 
 interface Business {
   key: string;
-  word: string; // finishes the headline: "A calm voice for your …"
+  word: string; // sits in the headline: "Catch the bookings your … misses."
   kind: string;
   name: string;
   city: string;
@@ -49,53 +50,12 @@ interface Business {
   alt: string;
   agent: string;
   time: string;
+  why: string; // why nobody at the business could pick up
   asked: string;
   answer: string;
 }
 
 const BUSINESSES: Business[] = [
-  {
-    key: "boutique",
-    word: "boutique",
-    kind: "Clothing boutique",
-    name: "Maison Ivy",
-    city: "London",
-    hue: 330,
-    photo: "1441984904996-e0b6ba687e04",
-    alt: "Clothing boutique with hanging racks",
-    agent: "Harper",
-    time: "8:42pm",
-    asked: "Do you have the linen blazer in a size 12?",
-    answer: "We do, in sand and navy. It's £89, and we're open until 7 tomorrow if you'd like to try it on.",
-  },
-  {
-    key: "optician",
-    word: "optical shop",
-    kind: "Opticians",
-    name: "ClearView Opticians",
-    city: "Toronto",
-    hue: 199,
-    photo: "1615468822882-4828d2602857",
-    alt: "Silver-framed glasses resting on glass",
-    agent: "Owen",
-    time: "7:15am",
-    asked: "How long does an eye test take?",
-    answer: "About 30 minutes, and it's free with most vision plans. Shall I take your details so the team can book you in?",
-  },
-  {
-    key: "pharmacy",
-    word: "pharmacy",
-    kind: "Pharmacy",
-    name: "CarePoint Pharmacy",
-    city: "Dubai",
-    hue: 152,
-    photo: "1631549916768-4119b2e5f926",
-    alt: "Medicine tablets on a counter",
-    agent: "Nora",
-    time: "11:05pm",
-    asked: "Is my prescription ready to collect?",
-    answer: "I can't see prescriptions, but I'll pass your name to the pharmacist and they'll call you first thing.",
-  },
   {
     key: "dental",
     word: "clinic",
@@ -107,6 +67,7 @@ const BUSINESSES: Business[] = [
     alt: "Modern dental surgery with chair and lamp",
     agent: "Clara",
     time: "6:12am",
+    why: "Before opening",
     asked: "Are you open this Saturday?",
     answer: "We are, from 8am to 2pm. A check-up is $120. Can I take your name so the team can book you in?",
   },
@@ -120,69 +81,29 @@ const BUSINESSES: Business[] = [
     photo: "1580618672591-eb180b1a973f",
     alt: "Stylist blow-drying a client's hair",
     agent: "Patricia",
-    time: "9:30pm",
+    time: "2:30pm",
+    why: "Everyone was with a client",
     asked: "How much is a cut and blow-dry?",
-    answer: "It's €55 with a senior stylist and €45 with our junior team. We're open late on Thursdays.",
+    answer: "It's €55 with a senior stylist and €45 with our junior team. Shall I take your name so we can call you back with a time?",
   },
   {
-    key: "bakery",
-    word: "bakery",
-    kind: "Bakery",
-    name: "Golden Crust",
-    city: "Austin",
-    hue: 32,
-    photo: "1568254183919-78a4f43a2877",
-    alt: "Fresh bread on bakery shelves",
-    agent: "Milo",
-    time: "5:50am",
-    asked: "Can I order a birthday cake for Friday?",
-    answer: "Yes, we need two days' notice, so Friday works. I'll take your details and the baker will call to confirm.",
-  },
-  {
-    key: "garage",
-    word: "garage",
-    kind: "Auto repair",
-    name: "Torque & Co.",
-    city: "Lagos",
-    hue: 18,
-    photo: "1775590766345-c117265f0c1b",
-    alt: "Mechanic working on a car engine",
-    agent: "Marco",
-    time: "7:40pm",
-    asked: "My brakes are grinding. Can you look at it?",
-    answer: "That's often worn pads. A brake check is ₦25,000. We open at 7:30, so shall a mechanic call you first thing?",
-  },
-  {
-    key: "florist",
-    word: "florist",
-    kind: "Florist",
-    name: "Wild Fern",
-    city: "Cape Town",
-    hue: 140,
-    photo: "1639696194673-67b86204b885",
-    alt: "Flower shop full of fresh bouquets",
-    agent: "Clara",
-    time: "10:20pm",
-    asked: "Do you deliver on Sundays?",
-    answer: "We do, between 9 and 1. Same-day delivery is R150 if you order before 10am.",
-  },
-  {
-    key: "gym",
-    word: "gym",
-    kind: "Fitness studio",
-    name: "Pulse Fitness",
-    city: "Berlin",
-    hue: 4,
-    photo: "1534438327276-14e5300c3a48",
-    alt: "Woman training in a gym",
-    agent: "Jonah",
-    time: "6:05am",
-    asked: "Is there a free trial class?",
-    answer: "Your first class is free. Spin starts at 7 and yoga at 8. Want me to take your name for tomorrow?",
+    key: "optician",
+    word: "practice",
+    kind: "Opticians",
+    name: "ClearView Opticians",
+    city: "Toronto",
+    hue: 199,
+    photo: "1615468822882-4828d2602857",
+    alt: "Silver-framed glasses resting on glass",
+    agent: "Owen",
+    time: "12:50pm",
+    why: "Lunch break",
+    asked: "How long does an eye test take?",
+    answer: "About 30 minutes, and it's free with most vision plans. Shall I take your details so the team can book you in?",
   },
   {
     key: "vet",
-    word: "vet",
+    word: "vet practice",
     kind: "Veterinary clinic",
     name: "Paws & Whiskers",
     city: "Nairobi",
@@ -191,8 +112,24 @@ const BUSINESSES: Business[] = [
     alt: "Vet examining a dachshund",
     agent: "Nora",
     time: "9:10pm",
+    why: "After hours",
     asked: "My dog hasn't eaten all day. What should I do?",
     answer: "I'm sorry to hear that. I'll alert the on-call vet right now so they can call you back.",
+  },
+  {
+    key: "gym",
+    word: "studio",
+    kind: "Fitness studio",
+    name: "Pulse Fitness",
+    city: "Berlin",
+    hue: 4,
+    photo: "1534438327276-14e5300c3a48",
+    alt: "Woman training in a gym",
+    agent: "Jonah",
+    time: "6:05am",
+    why: "Front desk was mid-class",
+    asked: "Is there a free trial class?",
+    answer: "Your first class is free. Spin starts at 7 and yoga at 8. Want me to take your name for tomorrow?",
   },
 ];
 
@@ -300,9 +237,10 @@ function Nav() {
         <nav className="hidden items-center gap-7 text-sm text-slate-600 lg:flex">
           {[
             ["#try", "Talk to Amani"],
-            ["#street", "Every business"],
-            ["#live3", "How it talks"],
-            ["#day", "A day of calls"],
+            ["#street", "Who it's for"],
+            ["#cost", "What you're losing"],
+            ["#day", "How it covers you"],
+            ["#pricing", "Pricing"],
             ["#faq", "Questions"],
           ].map(([href, label]) => (
             <a key={href} href={href} className="relative py-1 hover:text-slate-950 after:absolute after:inset-x-0 after:-bottom-0.5 after:h-px after:origin-left after:scale-x-0 after:bg-slate-950 after:transition-transform hover:after:scale-x-100">
@@ -590,23 +528,24 @@ function Hero({ index }: { index: number }) {
           <Reveal>
             <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 py-1 pl-1 pr-3 text-xs font-medium text-slate-600 shadow-xs backdrop-blur">
               <span className="rounded-full bg-slate-950 px-2 py-0.5 text-white">New</span>
-              AI call agents for local businesses
+              Missed-call cover for clinics, salons and studios
             </span>
           </Reveal>
           <h1 className="mt-7 font-display text-[3.4rem] leading-[0.95] tracking-tight text-slate-950 sm:text-7xl lg:text-[5.75rem]">
             <Reveal as="span" variant="blur" className="block">
-              A calm voice
+              Catch the bookings
             </Reveal>
             <Reveal as="span" variant="blur" index={1} className="block [perspective:600px]">
-              for your{" "}
+              your{" "}
               <em key={biz.key} className="word-in not-italic" style={{ color: "hsl(var(--hue) 75% 45%)" }}>
-                <span className="italic">{biz.word}.</span>
-              </em>
+                <span className="italic">{biz.word}</span>
+              </em>{" "}
+              misses.
             </Reveal>
           </h1>
           <Reveal index={2} as="p" className="mt-7 max-w-lg text-lg leading-relaxed text-slate-600">
-            CalMe gives every business its own AI call agent. It knows your hours and prices,
-            answers in a warm, natural voice, and takes a message when it can't help, day or night.
+            When your team can't pick up, CalMe does. It answers the question in a warm, natural voice
+            and takes the caller's name and number, so a missed call stops being a lost booking.
           </Reveal>
           <Reveal index={3} className="mt-9 flex flex-col items-start gap-4 sm:flex-row sm:items-center">
             <PrimaryCta>Book a demo</PrimaryCta>
@@ -616,7 +555,7 @@ function Hero({ index }: { index: number }) {
             </a>
           </Reveal>
           <Reveal index={4} as="p" className="mt-5 text-sm text-slate-500">
-            Want to hear it first? Amani is a real call agent. Say hello →
+            Free for your first week. Want to hear it first? Say hello to Amani →
           </Reveal>
         </div>
 
@@ -649,10 +588,10 @@ function Showcase() {
     <section id="street" className="scroll-mt-16 border-t border-slate-100 py-28">
       <div className="mx-auto max-w-7xl px-5 sm:px-8">
         <SectionTitle
-          eyebrow="Built for every business"
-          aside="Boutiques, opticians, pharmacies, clinics, salons and more. Each gets its own call agent, with its own name, voice and greeting, and knows its hours, prices and services."
+          eyebrow="Built for appointment businesses"
+          aside="Clinics, salons, opticians, vets and studios: places where the phone rings while your hands are full. Each gets its own agent that knows its hours, prices and services."
         >
-          Every kind of business. <em className="text-slate-400">One calm voice.</em>
+          Where a missed call <em className="text-slate-400">is a missed booking.</em>
         </SectionTitle>
 
         <Reveal variant="scale">
@@ -703,7 +642,7 @@ function Showcase() {
                       <span className="relative flex size-8 items-center justify-center rounded-full text-white" style={{ background: `hsl(${biz.hue} 75% 50%)` }}>
                         <PhoneIncoming className="size-4" />
                       </span>
-                      Incoming call
+                      {biz.why}
                     </span>
                     <span className="tabular text-slate-400">{biz.time}</span>
                   </div>
@@ -762,7 +701,7 @@ function Showcase() {
             </button>
           ))}
         </div>
-        <p className="mt-4 text-center text-xs text-slate-400">Example businesses and calls. Photos from Unsplash.</p>
+        <p className="mt-4 text-center text-xs text-slate-400">Example businesses and calls nobody on the team could take. Photos from Unsplash.</p>
       </div>
     </section>
   );
@@ -788,7 +727,7 @@ function Live3() {
   const s = BARGE[step];
 
   return (
-    <section id="live3" className="scroll-mt-16 px-3 pt-28 sm:px-5" style={{ "--hue": 217 } as CSSProperties}>
+    <section id="live3" className="scroll-mt-16 px-3 sm:px-5" style={{ "--hue": 217 } as CSSProperties}>
       <div className="relative mx-auto max-w-[90rem] overflow-hidden rounded-[2rem] bg-slate-950 px-5 py-24 text-white sm:px-8">
         <div className="absolute -right-32 -top-40 size-[30rem] rounded-full bg-brand-600/25 blur-3xl" />
         <div className="absolute -bottom-40 -left-32 size-[26rem] rounded-full bg-violet-600/20 blur-3xl" />
@@ -852,7 +791,7 @@ const DAY: { hour: number; time: string; tag: string; icon: typeof Sun; caller: 
   {
     hour: 9.1,
     time: "9:05am",
-    tag: "Busy morning",
+    tag: "Front desk busy",
     icon: Sun,
     caller: "Where exactly are you? I can't find the entrance.",
     reply: "We're on the first floor above the pharmacy on Mpaka Road. The entrance is on the left side of the building.",
@@ -860,7 +799,7 @@ const DAY: { hour: number; time: string; tag: string; icon: typeof Sun; caller: 
   {
     hour: 12.7,
     time: "12:40pm",
-    tag: "Lunch rush",
+    tag: "Lunch break",
     icon: Utensils,
     caller: "Do you accept insurance?",
     reply: "Yes, we accept most major insurance. Please bring your card to your appointment.",
@@ -868,7 +807,7 @@ const DAY: { hour: number; time: string; tag: string; icon: typeof Sun; caller: 
   {
     hour: 17.9,
     time: "5:55pm",
-    tag: "Closing time",
+    tag: "Line engaged",
     icon: Sun,
     caller: "Can I get my teeth whitened for half price?",
     reply: "I'm not able to agree to a discount, but I can take a message and the owner will get back to you.",
@@ -891,12 +830,12 @@ function DayTimeline() {
     <section id="day" className="scroll-mt-16 py-28" style={{ "--hue": 199 } as CSSProperties}>
       <div className="mx-auto max-w-7xl px-5 sm:px-8">
         <SectionTitle
-          eyebrow="A day of calls"
-          aside="Early mornings, the lunch rush and long after you've locked up, your agent answers every call the same calm way. Tap a call to hear how it went."
+          eyebrow="How it covers you"
+          aside="Nothing changes for your team. CalMe only steps in when nobody can pick up: before opening, when the front desk is busy, and long after you've locked up. Tap a call to see how it went."
         >
-          Twenty-four hours.
+          Your team answers first.
           <br />
-          <em className="text-slate-400">Not one missed call.</em>
+          <em className="text-slate-400">CalMe catches the rest.</em>
         </SectionTitle>
 
         <Reveal variant="scale" className="mt-14 rounded-[1.75rem] border border-slate-200/80 bg-white p-6 shadow-xs sm:p-10">
@@ -968,7 +907,7 @@ function DayTimeline() {
               </div>
             </div>
           </div>
-          <p className="mt-6 text-xs text-slate-400">An example day for a dental clinic. Your agent answers using the details you give it.</p>
+          <p className="mt-6 text-xs text-slate-400">Five calls a dental clinic couldn't take in one example day. Your agent answers using the details you give it.</p>
         </Reveal>
       </div>
     </section>
@@ -1034,25 +973,25 @@ function MissedCalls() {
               <Eyebrow dark>What missed calls cost you</Eyebrow>
             </Reveal>
             <Reveal as="h2" variant="blur" index={1} className="mt-4 font-display text-5xl leading-[1.02] tracking-tight sm:text-6xl">
-              Every unanswered call
+              Every call you can't take
               <br />
-              <em className="text-brand-300">is a customer calling someone else.</em>
+              <em className="text-brand-300">is a booking for someone else.</em>
             </Reveal>
             <Reveal index={2} as="p" className="mt-6 max-w-md text-lg text-slate-400">
-              Move the sliders to match your business and see what's at stake in a year.
+              Callers rarely leave a voicemail. They ring the next place on the list. Move the sliders to match your business and see what that adds up to in a year.
             </Reveal>
           </div>
 
           <Reveal variant="scale" index={1} className="rounded-3xl border border-white/10 bg-white/[0.05] p-6 backdrop-blur sm:p-8">
             <div className="space-y-7">
               <Slider label="Calls you miss in a week" value={missed} min={1} max={60} onChange={setMissed} />
-              <Slider label="How many would become customers" value={rate} min={5} max={100} step={5} suffix="%" onChange={setRate} />
-              <Slider label="What a new customer spends" value={spend} min={100} max={20000} step={100} onChange={setSpend} />
+              <Slider label="How many would have booked" value={rate} min={5} max={100} step={5} suffix="%" onChange={setRate} />
+              <Slider label="What a booking is worth to you" value={spend} min={100} max={20000} step={100} onChange={setSpend} />
             </div>
             <div className="mt-8 border-t border-white/10 pt-7">
-              <div className="text-sm text-slate-400">Potential business missed in a year</div>
+              <div className="text-sm text-slate-400">Bookings lost to missed calls in a year</div>
               <CountUp value={yearly} className="tabular mt-1 block font-display text-6xl leading-none text-white sm:text-7xl" />
-              <div className="mt-2 text-sm text-slate-400">About {customers.toLocaleString()} new customers, in your own currency.</div>
+              <div className="mt-2 text-sm text-slate-400">About {customers.toLocaleString()} bookings, in your own currency.</div>
             </div>
             <p className="mt-6 text-xs text-slate-500">
               An estimate from the numbers you entered, not a promise. Answering calls helps, but customers still decide for themselves.
@@ -1107,7 +1046,7 @@ function Features() {
     <section id="features" className="scroll-mt-16 py-28">
       <div className="mx-auto max-w-7xl px-5 sm:px-8">
         <SectionTitle eyebrow="What your agent does">
-          A front desk that <em className="text-slate-400">never takes a day off.</em>
+          Cover for the calls <em className="text-slate-400">you can't get to.</em>
         </SectionTitle>
 
         <div className="mt-14 grid gap-4 md:grid-cols-6">
@@ -1145,7 +1084,7 @@ function Features() {
             </div>
           </Tile>
 
-          <Tile index={2} className="md:col-span-2" title="Honest, always" body="It only says what you've told it. When it doesn't know, it takes a message.">
+          <Tile index={2} className="md:col-span-2" title="Honest, always" body="It only says what you've told it. When it doesn't know, it takes the caller's details for you.">
             <div className="w-full max-w-xs space-y-2 text-sm">
               <p className="ml-auto w-fit rounded-2xl rounded-br-md bg-slate-950 px-3.5 py-2 text-white">Can I get it for half price?</p>
               <p className="w-fit rounded-2xl rounded-bl-md bg-brand-50 px-3.5 py-2 text-slate-800 ring-1 ring-brand-100">
@@ -1158,14 +1097,17 @@ function Features() {
             <VoiceOrb status={orbStatus} level={orbStatus === "speaking" ? 0.6 : 0.15} className="size-40" />
           </Tile>
 
-          <Tile index={4} className="md:col-span-2" title="Its own phone line" body="Give your agent a local number. US and Canadian numbers today, more countries soon.">
+          <Tile index={4} className="md:col-span-2" title="Only rings when you don't answer" body="Your number stays the same. Calls you can't take pass to your agent's line. US and Canadian lines today, more countries soon.">
             <div className="relative flex items-center justify-center">
               <span className="motion-safe-only absolute size-20 animate-ping rounded-full bg-emerald-200/60" />
               <span className="relative flex items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-lg ring-1 ring-slate-200">
                 <span className="flex size-9 items-center justify-center rounded-full bg-emerald-500 text-white">
                   <Phone className="motion-safe-only size-4 animate-ring" />
                 </span>
-                <span className="tabular font-display text-2xl">+1 415 555 0123</span>
+                <span className="text-left leading-tight">
+                  <span className="block text-xs text-slate-400">No answer after 4 rings</span>
+                  <span className="block font-display text-2xl">CalMe picks up</span>
+                </span>
               </span>
             </div>
           </Tile>
@@ -1178,14 +1120,14 @@ function Features() {
                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">Coming soon</span>
                 </div>
                 <p className="mt-1 text-slate-600">
-                  Your own shop page, bookings and orders your agent can take, and updates to customers by SMS and email.
+                  Bookings your agent can make itself, a text to you for every lead it catches, and updates to customers by SMS and email.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 {[
                   [ShoppingBag, "Your shop"],
                   [CalendarCheck, "Bookings"],
-                  [MessageSquareText, "SMS updates"],
+                  [MessageSquareText, "Lead texts"],
                   [Mail, "Email"],
                   [MessageCircle, "WhatsApp"],
                 ].map(([Icon, name]) => {
@@ -1212,8 +1154,8 @@ function Steps() {
   const [ref, inView] = useInView<HTMLOListElement>(0.3);
   const steps = [
     ["Book a demo", "Tell us a little about your business and pick a time that suits you."],
-    ["We set up your agent", "We build a call agent that knows your hours, services and prices, and you try it together with us."],
-    ["Put it on the line", "Give it a phone number and it starts answering your customers."],
+    ["We set it up for you", "We build an agent that knows your hours, services and prices, and you try it together with us."],
+    ["Run it free for a week", "Calls you can't take go to your agent. Then we go through what it caught, and you decide."],
   ];
   return (
     <section className="border-t border-slate-100 py-28">
@@ -1223,7 +1165,7 @@ function Steps() {
             <Eyebrow>Getting started</Eyebrow>
           </Reveal>
           <Reveal as="h2" variant="blur" index={1} className="mt-4 font-display text-5xl leading-[1.02] tracking-tight">
-            Three steps <em className="text-slate-400">to a calm phone.</em>
+            Three steps <em className="text-slate-400">to no more lost bookings.</em>
           </Reveal>
           <Reveal index={2}>
             <PrimaryCta className="mt-8">Book a demo</PrimaryCta>
@@ -1266,15 +1208,74 @@ function Steps() {
   );
 }
 
+// ---------- pricing: free to try, flat to keep ----------
+
+function Pricing() {
+  const book = useBookDemo();
+  const stages: [string, string, string][] = [
+    ["Week one", "Free", "Your agent covers the calls you can't take. At the end we go through what it caught, and you decide."],
+    ["Setup", "Done for you", "We build your agent from your hours, services and prices. A one-off fee, agreed before we start."],
+    ["After that", "One flat price", "The same amount every month, agreed up front. No per-minute charges and no surprise bills."],
+  ];
+  return (
+    <section id="pricing" className="scroll-mt-16 border-t border-slate-100 py-28">
+      <div className="mx-auto max-w-7xl px-5 sm:px-8">
+        <SectionTitle
+          eyebrow="Pricing"
+          aside="It should cost less than the bookings it brings back. You get your price on the demo, before you commit to anything."
+        >
+          Free to try. <em className="text-slate-400">Flat to keep.</em>
+        </SectionTitle>
+
+        <div className="mt-14 grid gap-4 md:grid-cols-3">
+          {stages.map(([when, what, body], i) => (
+            <Reveal key={when} index={i} className="flex flex-col rounded-[1.5rem] border border-slate-200/80 bg-white p-6 sm:p-8">
+              <div className="flex items-center gap-2 text-sm font-medium text-slate-500">
+                <span className="flex size-5 items-center justify-center rounded-full bg-emerald-500 text-white">
+                  <Check className="size-3" />
+                </span>
+                {when}
+              </div>
+              <div className="mt-4 font-display text-4xl leading-none tracking-tight">{what}</div>
+              <p className="mt-3 text-slate-600">{body}</p>
+            </Reveal>
+          ))}
+        </div>
+
+        <Reveal index={3} className="mt-4 rounded-[1.5rem] border border-dashed border-slate-300 p-6 sm:p-8">
+          <div className="flex flex-wrap items-center justify-between gap-6">
+            <div className="max-w-2xl">
+              <h3 className="text-lg font-semibold tracking-tight">Already work with clinics, salons or studios?</h3>
+              <p className="mt-1 text-slate-600">
+                If you sell software or services to appointment businesses, you can offer CalMe to your customers and share the revenue.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={book}
+              className="inline-flex h-11 items-center gap-2 rounded-full bg-white px-5 text-sm font-medium text-slate-950 ring-1 ring-inset ring-slate-300 transition hover:ring-slate-950 active:scale-[0.98]"
+            >
+              Talk to us about partnering
+              <ArrowRight className="size-4" />
+            </button>
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
 // ---------- faq ----------
 
 const FAQS: [string, string][] = [
-  ["Do I need any technical knowledge?", "No. Book a demo, tell us about your business, and we set your call agent up with you."],
+  ["Does it replace my receptionist?", "No. Your team keeps answering the phone as they do now. CalMe only picks up the calls nobody can get to: when you're busy, on a break or closed."],
+  ["What does it cost?", "Your first week is free. After that it's a one-off setup fee and one flat monthly price, agreed with you on the demo. There are no per-minute charges."],
+  ["Can I keep my current number?", "Yes. Your number stays as it is. We set your phone up to pass unanswered calls to your agent's line, which is a US or Canadian number today."],
+  ["Do I need any technical knowledge?", "No. Book a demo, tell us about your business, and we set your agent up with you."],
   ["Will callers know it's an AI?", "It speaks naturally and politely. If a caller sincerely asks, it tells them it's the virtual assistant for your business."],
-  ["What if it doesn't know the answer?", "It won't make things up. It says it doesn't have that information and offers to take a message so you can call back."],
+  ["What if it doesn't know the answer?", "It won't make things up. It says it doesn't have that information and takes the caller's details so you can call back."],
+  ["Can it make the booking itself?", "Not yet. Today it answers questions and takes the caller's name and number so your team can book them in. Bookings made by the agent are coming next."],
   ["Which languages does it speak?", "English today. More languages are on the way."],
-  ["Can I keep my current number?", "You can get a new local number in the US or Canada today. Forwarding from the number you already have is coming soon."],
-  ["Can it take bookings or orders?", "Not yet. Today it answers questions and takes messages. Bookings, orders and SMS and email updates are coming next."],
   ["Can I change what it says?", "Any time. Update your hours, prices or greeting and it uses them from the very next call."],
 ];
 
@@ -1343,7 +1344,7 @@ function Closing() {
           Let it ring.
         </Reveal>
         <Reveal as="p" index={2} className="relative mx-auto mt-6 max-w-md text-lg text-slate-400">
-          Your call agent's got it. Book a demo and we'll set one up for your business.
+          When you can't answer, CalMe will. Book a demo and try it free for a week.
         </Reveal>
         <Reveal index={3} className="relative mt-9">
           <PrimaryCta light>Book a demo</PrimaryCta>
@@ -1354,7 +1355,8 @@ function Closing() {
         <footer className="relative mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-white/10 py-8 text-sm text-slate-400">
           <Logo dark />
           <div className="flex gap-6">
-            <a href="#street" className="hover:text-white">Every business</a>
+            <a href="#street" className="hover:text-white">Who it's for</a>
+            <a href="#pricing" className="hover:text-white">Pricing</a>
             <a href="#faq" className="hover:text-white">Questions</a>
           </div>
           <span>© {new Date().getFullYear()} CalMe</span>
@@ -1369,7 +1371,7 @@ export default function Landing() {
   const [booking, setBooking] = useState(false);
   const reduced = useReducedMotion();
 
-  // the headline names a different kind of business every few seconds
+  // the headline names a different kind of appointment business every few seconds
   useEffect(() => {
     if (reduced) return;
     const id = window.setInterval(() => setIndex((i) => (i + 1) % BUSINESSES.length), 3200);
@@ -1389,11 +1391,12 @@ export default function Landing() {
         <main>
           <Hero index={index} />
           <Showcase />
-          <Live3 />
-          <DayTimeline />
           <MissedCalls />
+          <DayTimeline />
+          <Live3 />
           <Features />
           <Steps />
+          <Pricing />
           <Faq />
           <Closing />
         </main>
